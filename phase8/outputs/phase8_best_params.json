@@ -1,0 +1,21 @@
+{
+  "reference_id": "70560d1bd70af7cd",
+  "selection": "RandomizedSearchCV n_iter=60, 5-fold CV RMSE (\u20b9) on train; top-5 re-scored on RepeatedKFold 5x3",
+  "random_forest": {
+    "n_estimators": 300,
+    "min_samples_split": 10,
+    "min_samples_leaf": 1,
+    "max_samples": 0.7,
+    "max_features": 1.0,
+    "max_depth": null
+  },
+  "gradient_boosting": {
+    "learning_rate": 0.03262161345833058,
+    "loss": "huber",
+    "max_depth": 3,
+    "max_features": 0.5,
+    "min_samples_leaf": 8,
+    "n_estimators": 835,
+    "subsample": 0.6388705975083074
+  }
+}
