@@ -39,7 +39,11 @@ Full orientation: `README.md`. These rules are always in force.
   (repeated 5x3 CV + paired test bootstrap), then `notebooks/final_selection.ipynb`.
 - Model choice uses training-split evidence only (lowest repeated-CV RMSE). Never pick a model
   or hyperparameters by test score; test gaps among the top boosters are within bootstrap noise.
-- Current final model: tuned XGBoost (`models/final_model_meta.json` has its hyperparameters).
+- Final configs: `python main.py --decide` keeps tuned params only where they beat the default on
+  test RMSE (user's rule) -> `reports/final_configs.json`; `python main.py --final` re-evaluates all
+  models with those configs into `reports/final/` (never overwrites reports/metrics or the main
+  leaderboard). Since this uses test for selection, treat validation + repeated CV as the unbiased checks.
+- Final model is chosen by the user and locked in via `CHOICE` in `notebooks/final_selection.ipynb`.
 - Results: `reports/metrics/metrics_<key>[_tuned].{json,csv}`, `reports/predictions/`,
   `reports/model_comparison.csv`, `reports/tuning/`, `reports/tuned_best_params.json`,
   `reports/tuning_report.md`.
