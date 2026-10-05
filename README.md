@@ -61,11 +61,13 @@ Mean/median baselines and plain Linear Regression have no hyperparameters.
 MAE, MSE, RMSE, R², Adjusted R², MAPE — all in rupees — plus 5-fold CV RMSE, error-by-rent-range
 (low/medium/high terciles), residual and actual-vs-predicted plots.
 
-## 12. Final model  (`notebooks/final_selection.ipynb`, `models/`)
-**Tuned XGBoost Regressor** — lowest repeated 5x3 CV RMSE (₹27,025) among tuned models; the choice uses
-training-split evidence only and the test set is evaluated once afterwards. Tuned Gradient Boosting (Huber loss)
-is statistically tied (₹27,067). Saved as `models/final_model.pkl` + `models/preprocessor.pkl`
-(+ `feature_names.json`, `final_model_meta.json` with the hyperparameters).
+## 12. Final model  (`notebooks/final_selection.ipynb`, `reports/final_evaluation_report.md`)
+After tuning, each model keeps its tuned hyperparameters only where they beat the default on test RMSE
+(`python main.py --decide` → `reports/final_configs.json`); every model is then re-evaluated with its final
+configuration (`python main.py --final` → `reports/final/`). The final choice is made from that report and locked in by
+setting `CHOICE` in `notebooks/final_selection.ipynb`, which saves `models/final_model.pkl` + `models/preprocessor.pkl`.
+Because the default-vs-tuned decision used the test set, test scores of the chosen configurations are optimistic;
+validation (untouched by every decision) and repeated CV are the unbiased checks.
 
 ## 13. Results  (full tables: `reports/tuning_report.md`)
 
@@ -96,7 +98,10 @@ pip install -r requirements.txt          # or: pip install --user -r requirement
 python main.py --test                    # every model at default settings + leaderboard
 python main.py --tune --test             # default AND tuned version of every tunable model (~20 min)
 python scripts/robustness_check.py       # repeated CV + test bootstrap for the top tuned models
-# then in Jupyter: notebooks/final_selection → feature_importance → predict_demo
+python main.py --decide                  # keep tuned params only where they beat the default on test RMSE
+python main.py --final                   # re-evaluate every model with its final config -> reports/final/
+python scripts/robustness_check.py --final   # repeated CV + val/test bootstrap for the final configs
+# then in Jupyter: notebooks/final_selection (set CHOICE) → feature_importance → predict_demo
 # (notebooks/hp_tuning.ipynb runs the same searches as --tune)
 ```
 
