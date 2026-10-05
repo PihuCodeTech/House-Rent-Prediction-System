@@ -98,14 +98,16 @@ def print_summary(results, n_rows, n_features, cv_folds=config.CV_FOLDS):
     print(f"Training Time: {r['train_time_s']:.2f} s   (CV time: {r['cv']['time_s']:.2f} s)")
 
 
-def save_results(results, pred, data):
-    """Write per-model metrics (JSON + a flat CSV row) and predictions CSV into reports/."""
-    config.METRICS_DIR.mkdir(parents=True, exist_ok=True)
-    config.PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
+def save_results(results, pred, data, metrics_dir=None, predictions_dir=None):
+    """Write per-model metrics (JSON + a flat CSV row) and predictions CSV (default: reports/metrics, reports/predictions)."""
+    metrics_dir = metrics_dir or config.METRICS_DIR
+    predictions_dir = predictions_dir or config.PREDICTIONS_DIR
+    metrics_dir.mkdir(parents=True, exist_ok=True)
+    predictions_dir.mkdir(parents=True, exist_ok=True)
     key = results["key"]
 
     # full metrics JSON
-    (config.METRICS_DIR / f"metrics_{key}.json").write_text(json.dumps(results, indent=2))
+    (metrics_dir / f"metrics_{key}.json").write_text(json.dumps(results, indent=2))
 
     # flat one-row CSV for easy leaderboard concatenation
     row = {"key": key, "model": results["model"], "reference_id": results["reference_id"],
@@ -116,10 +118,10 @@ def save_results(results, pred, data):
             for m in ("MAE", "MSE", "RMSE", "R2", "Adj_R2", "MAPE"):
                 if m in results[split]:
                     row[f"{split}_{m.lower()}"] = results[split][m]
-    pd.DataFrame([row]).to_csv(config.METRICS_DIR / f"metrics_{key}.csv", index=False)
+    pd.DataFrame([row]).to_csv(metrics_dir / f"metrics_{key}.csv", index=False)
     if "error_by_rent_range" in results:
         pd.DataFrame(results["error_by_rent_range"]).to_csv(
-            config.METRICS_DIR / f"error_by_band_{key}.csv", index=False)
+            metrics_dir / f"error_by_band_{key}.csv", index=False)
 
     # predictions (actual / predicted / residual) in rupees
     y = {"train": data["y_train"], "val": data["y_val"], "test": data["y_test"]}
@@ -130,20 +132,19 @@ def save_results(results, pred, data):
             frames.append(pd.DataFrame({"row_id": X[s].index, "split": s, "actual_rent": y[s].to_numpy(),
                                         "predicted_rent": pred[s], "residual": y[s].to_numpy() - pred[s]}))
     pred_df = pd.concat(frames, ignore_index=True)
-    pred_df.to_csv(config.PREDICTIONS_DIR / f"predictions_{key}.csv", index=False)
+    pred_df.to_csv(predictions_dir / f"predictions_{key}.csv", index=False)
     return pred_df
 
 
-def build_leaderboard():
-    """Concatenate reports/metrics/metrics_*.csv into a single sorted leaderboard CSV."""
-    files = sorted(config.METRICS_DIR.glob("metrics_*.csv"))
+def build_leaderboard(metrics_dir=None, out_path=None):
+    """Concatenate metrics_*.csv (default reports/metrics) into one leaderboard sorted by CV RMSE."""
+    files = sorted((metrics_dir or config.METRICS_DIR).glob("metrics_*.csv"))
     if not files:
         raise FileNotFoundError("no metrics_*.csv yet — run the model notebooks first.")
     board = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
     sort_col = "cv_rmse" if "cv_rmse" in board else "val_rmse"
     board = board.sort_values(sort_col).reset_index(drop=True)
-    out = config.REPORTS / "model_comparison.csv"
-    board.to_csv(out, index=False)
+    board.to_csv(out_path or (config.REPORTS / "model_comparison.csv"), index=False)
     return board
 
 
