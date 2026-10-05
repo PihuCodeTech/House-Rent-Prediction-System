@@ -136,3 +136,55 @@ def regularization_search(key, data):
 
 def randomized_search(key, data, n_iter=15):
     return tune(key, data, n_iter=n_iter)
+
+
+# ----------------------------- final configurations -----------------------------
+FINAL_CONFIG_FILE = config.REPORTS / "final_configs.json"
+
+
+def decide_final_configs(board, metric="test_rmse", source=""):
+    """Per model, keep the tuned hyperparameters only if they beat the default on `metric` (lower is
+    better); otherwise revert to library defaults. The tuning record in tuned_best_params.json is kept.
+
+    NOTE: deciding on test_rmse uses the test set for model selection, so test scores of the chosen
+    configurations become optimistically biased; validation stays untouched by every decision.
+    """
+    board = board.set_index("key") if "key" in board.columns else board
+    tuned_params = load_tuned_params()
+    models = {}
+    for key in REGISTRY:
+        if key not in board.index:
+            continue                                   # optional package not installed / not run
+        if key in UNTUNABLE:
+            models[key] = {"config": "default", "params": {}, "reason": "no hyperparameters to tune"}
+            continue
+        tk = key + "_tuned"
+        if tk not in board.index or key not in tuned_params:
+            models[key] = {"config": "default", "params": {}, "reason": "not tuned"}
+            continue
+        d, t = float(board.loc[key, metric]), float(board.loc[tk, metric])
+        cfg = "tuned" if t < d else "default"
+        models[key] = {"config": cfg, "params": tuned_params[key] if cfg == "tuned" else {},
+                       f"{metric}_default": d, f"{metric}_tuned": t,
+                       "reason": f"{cfg} has the lower {metric} ({min(d, t):,.2f} vs {max(d, t):,.2f})"}
+    payload = {"rule": f"keep tuned hyperparameters only where they beat the default on {metric}",
+               "decided_on": metric, "source": source,
+               "caveat": "test set used for selection -> test scores of these configs are optimistic; "
+                         "validation is the untouched held-out check",
+               "models": models}
+    FINAL_CONFIG_FILE.write_text(json.dumps(payload, indent=2, default=str))
+    return payload
+
+
+def load_final_configs():
+    if not FINAL_CONFIG_FILE.exists():
+        raise FileNotFoundError("reports/final_configs.json missing — run `python main.py --decide` first.")
+    return json.loads(FINAL_CONFIG_FILE.read_text())
+
+
+def build_final_model(key, target_transform):
+    """Pipeline for `key` with its final configuration (tuned params or library defaults)."""
+    cfg = load_final_configs()["models"].get(key, {"config": "default", "params": {}})
+    if cfg["config"] == "tuned":
+        return build_tuned_model(key, target_transform, cfg["params"]), "tuned"
+    return make_model(key, target_transform), "default"
