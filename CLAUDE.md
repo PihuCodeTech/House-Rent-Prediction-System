@@ -1,59 +1,52 @@
 # CLAUDE.md — Project Rules (read every turn)
 
-Supervised **regression** experiment predicting house rent. Full playbook: `ACTION_PLAN.md`.
+Supervised **regression** experiment predicting house rent, as a clean modular repo.
+Full orientation: `README.md`. These rules are always in force.
 
-## Dataset
-- `House_Rent_Dataset.csv` (~4,746 rows, 12 cols). Target: `Rent` (continuous).
-- Cols: Posted On, BHK, Rent, Size, Floor ("Ground out of 2"), Area Type, Area Locality
-  (high-cardinality), City, Furnishing Status, Tenant Preferred, Bathroom, Point of Contact.
-- `Dataset Glossary.txt` defines columns — use it in Phase 1.
+## Architecture (single source of truth = src/)
+- All data-prep logic lives ONCE in `src/` and is imported, never copy-pasted. Every model
+  notebook is thin: it calls `src.preprocessing.prepare_data()` and `src.models.make_model()`.
+- Layout: `data/raw` (CSV), `notebooks/` (one .ipynb per model + model_comparison), `src/`
+  (config, data_loading, data_cleaning, feature_engineering, preprocessing, models, evaluation,
+  prediction), `models/`, `reports/{metrics,predictions}`, `visualizations/`, `main.py`.
+- The original phase1–phase10 work is archived in `_legacy_phases/` (reference only).
 
-## STANDARD ML WORKFLOW — pipelines, not hardcoding (most important)
-- **No manual/eyeballed data surgery.** Never drop specific row indices
-  (`df.drop([13, 4213])`), never per-row hand edits, never a chart-read threshold typed in
-  without deriving it in code. Cleaning is either a stateless RULE or a fitted TRANSFORMER.
-- **Stateless rules** (learn nothing from the distribution) are expressed as conditions and
-  may run pre-split: `df[df["Rent"]>0]`, `drop_duplicates()`, parsing Floor/dates.
-- **Learned transforms** (median impute, encoders, scalers, feature selection, the log1p
-  decision) are assembled in sklearn `Pipeline`+`ColumnTransformer` and `fit` on TRAIN ONLY,
-  then applied to val/test. `.fit()` must never see val/test.
-- **EDA is look-only.** Phase 1 modifies/saves nothing and drops no rows; it outputs decisions.
-- **Never clean/drop validation or test rows** on distribution. Outliers: keep + robust
-  methods, OR an IQR cutoff computed on train and applied to train only. Val/test stay intact.
-- **Prepare once, consume everywhere.** Phase 5 builds + fits the pipeline once on train,
-  transforms all splits, and SAVES them. Model notebooks LOAD the saved splits and do NO
-  cleaning themselves — this is what guarantees identical data and kills per-notebook drift.
+## Data
+- `data/raw/House_Rent_Dataset.csv` (~4,746 rows). Target `Rent` (continuous), modelled on
+  `log1p`; predictions/metrics reported in rupees. Glossary in `data/raw/`.
+- Each model notebook reads the CSV and runs the full `src` pipeline itself (identical by
+  construction). No prepared .joblib bundle is required to run a model.
 
-## Output format
-- One standalone Jupyter notebook (`.ipynb`) per model, runs top-to-bottom in Colab.
-- Phase 5 saves ONE bundle `prepared_data.joblib` (dtype-exact: X/y splits, feature_names,
-  fingerprint, fitted preprocessor, target_transform flag). Model notebooks load it via
-  `joblib.load("prepared_data.joblib")`, uploaded into Colab cwd. No files.upload()/Drive.
+## Non-negotiable rules
+1. **Identical data for every model.** Same rows/features/split/seed (`RANDOM_STATE=42`). The
+   fingerprint `reference_id` (currently `70560d1bd70af7cd`) is written by the first model to
+   `reports/_run_reference.json`; every other model asserts it matches via
+   `assert_run_consistency(data)`. Mismatch -> STOP.
+2. **No hardcoding.** Cleaning is stateless RULES (conditions, never row indices) or fitted
+   TRANSFORMERS in sklearn Pipelines. No manual per-row edits.
+3. **No leakage.** Split before anything fitted; impute/encode/scale/target-transform fit on
+   TRAIN only; CV re-fits transforms per fold; validation is for selection only; test untouched
+   until `EVALUATE_TEST=True` (or `main.py --test`) at the final stage.
+4. **Fair comparison.** Only the estimator differs between notebooks; scaling is applied only
+   where it matters (linear/distance models) and never changes the underlying prepared matrix.
+5. **Regression** — no SMOTE / resampling. Target bins are for stratified splitting only.
 
-## Split — 70/15/15 (fixed, done once in Phase 5)
-- Train 70% / Val 15% / Test 15%, `random_state=42`, two-step (0.15 test, then 0.1765 of the
-  remainder = val). Reused identically everywhere. Stratify on bins if Phase 3 says so; bins
-  are never features.
+## Workflow
+- Change prep ONLY in `src/` (one place). Delete `reports/_run_reference.json` to re-baseline
+  the fingerprint if the pipeline is changed intentionally.
+- Defaults: `python main.py --test`. Tuning: `python main.py --tune --test` (search spaces and
+  budgets in `src/tuning.py`; CV on the TRAIN split only), then `python scripts/robustness_check.py`
+  (repeated 5x3 CV + paired test bootstrap), then `notebooks/final_selection.ipynb`.
+- Model choice uses training-split evidence only (lowest repeated-CV RMSE). Never pick a model
+  or hyperparameters by test score; test gaps among the top boosters are within bootstrap noise.
+- Current final model: tuned XGBoost (`models/final_model_meta.json` has its hyperparameters).
+- Results: `reports/metrics/metrics_<key>[_tuned].{json,csv}`, `reports/predictions/`,
+  `reports/model_comparison.csv`, `reports/tuning/`, `reports/tuned_best_params.json`,
+  `reports/tuning_report.md`.
 
-## Zero leakage (train -> val -> test)
-Split before anything fitted; fit on train only; CV re-fits transforms per fold; val is for
-comparison not fitting; test sacred until Phase 9 (`EVALUATE_TEST=False` until then); no
-target-derived features.
-
-## Core rules
-1. Identical data for every model; mismatch vs Phase-5 fingerprint (rows, feature names,
-   split indices, target hash) -> STOP and report.
-2. Phase-gated (./phase1..../phase10, relative). Report + STOP each phase; never auto-proceed.
-3. Evidence-driven; no preprocessing decision before Phase 1.
-4. Freeze at Phase 5. 5. Regression -> no SMOTE. 6. No repo structure yet.
-
-## Metrics & transform
-- log1p Rent -> back-transform with `np.expm1`; report ALL metrics (incl. CV RMSE) in rupees.
-- CV on 70% train fills "CV RMSE" for every model; 15% val is the model-selection check.
-
-## Each model notebook
-- Loads `prepared_data.joblib` -> verifies fingerprint BEFORE training (stop on mismatch) ->
-  applies only a model-appropriate scaler inside a Pipeline (fit on X_train; none for trees).
-  Linear/Ridge/Lasso/ElasticNet default alpha in P6; tuned in P7. Does NO data cleaning.
-- `!pip install` only when needed; standardized summary (Train/Val in P6-8, +Test in P9;
-  MAE, MSE, R², CV RMSE, training time).
+## Environment
+- scikit-learn models are CPU-only (train <1s on this data); there is no Apple-GPU path for them.
+- xgboost is required (final model); lightgbm/catboost for the full comparison. macOS needs
+  `brew install libomp`. CatBoost runs with `allow_writing_files=False` (no catboost_info/).
+- Untuned Decision Tree / Random Forest can differ slightly across CPU architectures (fully grown
+  trees flip near-tied splits); everything else reproduces exactly.

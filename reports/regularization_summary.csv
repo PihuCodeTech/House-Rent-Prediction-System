@@ -1,0 +1,4 @@
+model,alpha,cv_rmse,coef_total,coef_near_zero,l1_ratio
+Ridge Regression,17.78279410038923,29789,34,0,
+Lasso Regression,0.0026101572156825357,29650,34,16,
+Elastic Net,0.003359818286283781,29648,34,16,0.9

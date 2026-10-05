@@ -1,0 +1,6 @@
+rule,rows_before,rows_after,rows_removed
+rule_strip_text,4746,4746,0
+rule_validity,4746,4746,0
+rule_dedup_relisted,4746,4737,9
+rule_parse_floor,4737,4737,0
+rule_parse_date,4737,4737,0

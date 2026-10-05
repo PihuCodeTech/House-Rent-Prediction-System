@@ -1,0 +1,67 @@
+{
+  "ridge_regression": {
+    "alpha": 15.848931924611142
+  },
+  "lasso_regression": {
+    "alpha": 0.0031622776601683794
+  },
+  "elastic_net": {
+    "alpha": 0.0031622776601683794,
+    "l1_ratio": 1.0
+  },
+  "decision_tree": {
+    "ccp_alpha": 0.0,
+    "max_depth": 8,
+    "max_features": 0.5,
+    "min_samples_leaf": 6,
+    "min_samples_split": 17
+  },
+  "random_forest": {
+    "max_depth": 15,
+    "max_features": 0.7,
+    "max_samples": null,
+    "min_samples_leaf": 3,
+    "min_samples_split": 4,
+    "n_estimators": 488
+  },
+  "gradient_boosting": {
+    "learning_rate": 0.03262161345833058,
+    "loss": "huber",
+    "max_depth": 3,
+    "max_features": 0.5,
+    "min_samples_leaf": 8,
+    "n_estimators": 885,
+    "subsample": 0.6388705975083074
+  },
+  "xgboost_model": {
+    "colsample_bytree": 0.8776807051588262,
+    "gamma": 0.001,
+    "learning_rate": 0.04749239763680407,
+    "max_depth": 3,
+    "min_child_weight": 4.059382607081596,
+    "n_estimators": 676,
+    "reg_alpha": 0.755681014127442,
+    "reg_lambda": 2.1154290797261215,
+    "subsample": 0.9757995766256756
+  },
+  "lightgbm_model": {
+    "colsample_bytree": 0.7468977981821954,
+    "learning_rate": 0.04787304927324382,
+    "max_depth": 4,
+    "min_child_samples": 46,
+    "n_estimators": 1091,
+    "num_leaves": 58,
+    "reg_alpha": 0.00013357240411974094,
+    "reg_lambda": 0.35127047262708466,
+    "subsample": 0.7257423924305306,
+    "subsample_freq": 1
+  },
+  "catboost_model": {
+    "bagging_temperature": 0.3854165025399161,
+    "depth": 5,
+    "iterations": 864,
+    "l2_leaf_reg": 1.9970999139010037,
+    "learning_rate": 0.03483818023841825,
+    "random_strength": 1.448252288854252
+  }
+}

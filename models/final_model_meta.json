@@ -1,0 +1,24 @@
+{
+  "model": "XGBoost Regressor (tuned)",
+  "key": "xgboost_model_tuned",
+  "selection_rule": "lowest repeated 5x3 CV RMSE",
+  "hyperparameters": {
+    "colsample_bytree": 0.8776807051588262,
+    "gamma": 0.001,
+    "learning_rate": 0.04749239763680407,
+    "max_depth": 3,
+    "min_child_weight": 4.059382607081596,
+    "n_estimators": 676,
+    "reg_alpha": 0.755681014127442,
+    "reg_lambda": 2.1154290797261215,
+    "subsample": 0.9757995766256756
+  },
+  "reference_id": "70560d1bd70af7cd",
+  "cv_rmse": 26516.949222091316,
+  "val_rmse": 44800.91856201165,
+  "test_rmse": 23517.097780125845,
+  "test_mae": 9628.810546875,
+  "test_r2": 0.8087170124053955,
+  "test_mape": 0.2929067611694336,
+  "target_transform": "log1p"
+}

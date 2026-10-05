@@ -1,3 +1,17 @@
-.DS_Store
-.ipynb_checkpoints/
+# Python
 __pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+
+# Large / regenerable artifacts (comment out to version them)
+models/*.joblib
+reports/_run_reference.json
+
+# CatBoost training logs
+catboost_info/
