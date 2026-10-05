@@ -69,7 +69,7 @@
       "config": "default",
       "params": {},
       "test_rmse_default": 22638.878171235065,
-      "test_rmse_tuned": 24387.17490504281,
+      "test_rmse_tuned": 24387.174905042815,
       "reason": "default has the lower test_rmse (22,638.88 vs 24,387.17)"
     },
     "xgboost_model": {
