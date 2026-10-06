@@ -16,5 +16,8 @@ xgboost>=3.0
 lightgbm>=4.0
 catboost>=1.2            # CPU only on macOS (no Apple-GPU support)
 
+# Deep tuning (scripts/deep_tune.py)
+optuna>=4.0
+
 # Optional — interpretability
 # shap>=0.44
