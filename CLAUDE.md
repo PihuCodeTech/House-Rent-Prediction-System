@@ -43,6 +43,13 @@ Full orientation: `README.md`. These rules are always in force.
   test RMSE (user's rule) -> `reports/final_configs.json`; `python main.py --final` re-evaluates all
   models with those configs into `reports/final/` (never overwrites reports/metrics or the main
   leaderboard). Since this uses test for selection, treat validation + repeated CV as the unbiased checks.
+- `scripts/robustness_check.py --final` ends by running `scripts/final_report.py`, which rebuilds
+  `reports/final_evaluation_report.md` from the CSVs (never hand-edit that report).
+- Deep tuning: `python scripts/deep_tune.py` (Optuna/TPE, XGBoost + Random Forest) -> `reports/deep_tuning/`
+  (`deep_tuned_params.json`, trials, fresh-fold confirmation, metrics with bootstrap std); report via
+  `scripts/deep_tuning_report.py`. Deep params are NOT applied to final_configs.json automatically.
+- XGBoost models use `XGBRegressorMedianInit` (src/models.py): identical to XGBRegressor except the
+  pseudo-Huber objective starts from the fit-data median (needed on the log-rent scale).
 - Final model is chosen by the user and locked in via `CHOICE` in `notebooks/final_selection.ipynb`.
 - Results: `reports/metrics/metrics_<key>[_tuned].{json,csv}`, `reports/predictions/`,
   `reports/model_comparison.csv`, `reports/tuning/`, `reports/tuned_best_params.json`,
