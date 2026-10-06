@@ -57,6 +57,11 @@ LightGBM ₹28.2k → ₹26.5k, Decision Tree ₹36.9k → ₹29.8k, Lasso ₹59
 repeated 5x3 CV and their test RMSEs compared with a paired bootstrap (`scripts/robustness_check.py`).
 Mean/median baselines and plain Linear Regression have no hyperparameters.
 
+**Deep tuning** (`scripts/deep_tune.py`, `reports/deep_tuning_report.md`): Optuna/TPE searches for XGBoost (150 trials,
+incl. pseudo-Huber loss) and Random Forest (60 trials), scored on repeated CV and confirmed on fresh folds against the
+default and earlier tuned configs. Deep-tuned XGBoost has the best cross-validated RMSE of any model (₹27.0k on
+fresh 5x3 folds vs ₹29.6k for default XGBoost); validation/test differences between the variants are within noise.
+
 ## 11. Evaluation metrics  (`src/evaluation.py`)
 MAE, MSE, RMSE, R², Adjusted R², MAPE — all in rupees — plus 5-fold CV RMSE, error-by-rent-range
 (low/medium/high terciles), residual and actual-vs-predicted plots.
@@ -98,9 +103,11 @@ pip install -r requirements.txt          # or: pip install --user -r requirement
 python main.py --test                    # every model at default settings + leaderboard
 python main.py --tune --test             # default AND tuned version of every tunable model (~20 min)
 python scripts/robustness_check.py       # repeated CV + test bootstrap for the top tuned models
+python scripts/deep_tune.py              # Optuna deep tuning for XGBoost + Random Forest -> reports/deep_tuning/
+python scripts/deep_tuning_report.py     # rebuild reports/deep_tuning_report.md
 python main.py --decide                  # keep tuned params only where they beat the default on test RMSE
 python main.py --final                   # re-evaluate every model with its final config -> reports/final/
-python scripts/robustness_check.py --final   # repeated CV + val/test bootstrap for the final configs
+python scripts/robustness_check.py --final   # repeated CV + val/test bootstrap; rebuilds reports/final_evaluation_report.md
 # then in Jupyter: notebooks/final_selection (set CHOICE) → feature_importance → predict_demo
 # (notebooks/hp_tuning.ipynb runs the same searches as --tune)
 ```
