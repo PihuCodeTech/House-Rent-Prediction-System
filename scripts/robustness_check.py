@@ -57,6 +57,7 @@ if FINAL:
         win.to_csv(out / f"bootstrap_{split}_winrate.csv")
         print(f"\n{split} bootstrap 95% CI:\n", ci.round(0).to_string(index=False))
     print("\nRepeated CV (final configs):\n", rep.round(4).to_string(index=False))
+    import final_report; final_report.main()          # rebuild the report from these results
     sys.exit(0)
 
 # ---- default mode: strongest tuned models ----
