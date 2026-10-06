@@ -37,9 +37,31 @@ REGISTRY = {
 }
 
 
+try:
+    from xgboost import XGBRegressor as _XGBBase
+except ImportError:                       # xgboost is optional for everything except XGBoost models
+    _XGBBase = None
+
+if _XGBBase is not None:
+    class XGBRegressorMedianInit(_XGBBase):
+        """XGBRegressor that, for the pseudo-Huber objective, starts boosting from the median of the
+        targets it is fitted on (bounded Huber gradients cannot climb from XGBoost's default start to
+        a log-rent scale of ~9-12). The median comes from the fit data only -> no leakage across CV
+        folds. Behaviour for every other objective is unchanged. Module-level so it pickles."""
+        def fit(self, X, y, **kw):
+            if self.get_params().get("objective") == "reg:pseudohubererror" and self.get_params().get("base_score") is None:
+                self.set_params(base_score=float(np.median(np.asarray(y, dtype="float64"))))
+                try:
+                    return super().fit(X, y, **kw)
+                finally:
+                    self.set_params(base_score=None)   # keep get_params()/clone() identical to the input
+            return super().fit(X, y, **kw)
+
+
 def _xgb():
-    from xgboost import XGBRegressor
-    return XGBRegressor(random_state=RS, n_jobs=-1, tree_method="hist")
+    if _XGBBase is None:
+        raise ImportError("xgboost is not installed (pip install xgboost)")
+    return XGBRegressorMedianInit(random_state=RS, n_jobs=-1, tree_method="hist")
 
 
 def _lgbm():
