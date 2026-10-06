@@ -197,3 +197,13 @@ def bootstrap_rmse(y_true, preds, n_boot=2000, seed=42):
     win = pd.DataFrame([[float((rm[a] < rm[b]).mean()) if a != b else np.nan for b in names] for a in names],
                        index=names, columns=names)
     return ci.reset_index(drop=True), win
+
+
+def bootstrap_std(y_true, y_pred, n_boot=2000, seed=42):
+    """Bootstrap standard deviation of RMSE / MAE / R2 over row resamples of one split."""
+    y = np.asarray(y_true, dtype="float64"); p = np.asarray(y_pred, dtype="float64")
+    idx = np.random.default_rng(seed).integers(0, len(y), size=(n_boot, len(y)))
+    yt, yp = y[idx], p[idx]
+    rmse = np.sqrt(((yt - yp) ** 2).mean(1)); mae = np.abs(yt - yp).mean(1)
+    r2 = 1 - ((yt - yp) ** 2).sum(1) / ((yt - yt.mean(1, keepdims=True)) ** 2).sum(1)
+    return {"RMSE_std": float(rmse.std()), "MAE_std": float(mae.std()), "R2_std": float(r2.std())}
