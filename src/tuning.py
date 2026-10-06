@@ -185,6 +185,80 @@ def load_final_configs():
 def build_final_model(key, target_transform):
     """Pipeline for `key` with its final configuration (tuned params or library defaults)."""
     cfg = load_final_configs()["models"].get(key, {"config": "default", "params": {}})
-    if cfg["config"] == "tuned":
-        return build_tuned_model(key, target_transform, cfg["params"]), "tuned"
+    if cfg["config"] != "default":                     # "tuned", "deep", ... -> stored params
+        return build_tuned_model(key, target_transform, cfg["params"]), cfg["config"]
     return make_model(key, target_transform), "default"
+
+
+def final_params(key):
+    """Hyperparameters of `key`'s final configuration ({} = library defaults)."""
+    return load_final_configs()["models"].get(key, {}).get("params", {})
+
+
+# ----------------------------- deep tuning (Optuna / TPE) -----------------------------
+def _xgb_space(trial):
+    p = {"n_estimators": trial.suggest_int("n_estimators", 200, 2000, step=50),
+         "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.3, log=True),
+         "max_depth": trial.suggest_int("max_depth", 2, 10),
+         "min_child_weight": trial.suggest_float("min_child_weight", 0.5, 50, log=True),
+         "subsample": trial.suggest_float("subsample", 0.5, 1.0),
+         "colsample_bytree": trial.suggest_float("colsample_bytree", 0.4, 1.0),
+         "colsample_bynode": trial.suggest_float("colsample_bynode", 0.5, 1.0),
+         "gamma": trial.suggest_float("gamma", 1e-8, 0.5, log=True),
+         "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 5.0, log=True),
+         "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 50.0, log=True),
+         "objective": trial.suggest_categorical("objective", ["reg:squarederror", "reg:pseudohubererror"])}
+    if p["objective"] == "reg:pseudohubererror":
+        p["huber_slope"] = trial.suggest_float("huber_slope", 0.05, 2.0, log=True)
+    return p
+
+
+def _rf_space(trial):
+    p = {"n_estimators": trial.suggest_int("n_estimators", 300, 1500, step=100),
+         "max_features": trial.suggest_float("max_features", 0.2, 1.0),
+         "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
+         "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
+         "max_samples": trial.suggest_float("max_samples", 0.5, 1.0)}
+    p["max_depth"] = trial.suggest_int("max_depth", 8, 40) if trial.suggest_categorical("depth_limited", [False, True]) else None
+    return p
+
+
+OPTUNA_SPACES = {"xgboost_model": _xgb_space, "random_forest": _rf_space}
+
+
+def optuna_search(key, data, n_trials, cv_repeats=1, seed=RS, log_every=10):
+    """Bayesian (TPE) search on the TRAIN split. Objective = mean RMSE over 5-fold CV repeated
+    `cv_repeats` times. Estimator params are stored on each trial as user_attrs['est_params']."""
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    cv = (RepeatedKFold(n_splits=config.CV_FOLDS, n_repeats=cv_repeats, random_state=RS)
+          if cv_repeats > 1 else _cv())
+    space = OPTUNA_SPACES[key]
+
+    def objective(trial):
+        p = space(trial)
+        trial.set_user_attr("est_params", p)
+        model = build_tuned_model(key, data["target_transform"], p)
+        s = -cross_val_score(model, data["X_train"], data["y_train"], cv=cv, scoring=_RMSE, n_jobs=1)
+        trial.set_user_attr("cv_std", float(s.std()))
+        return float(s.mean())
+
+    def report(study, trial):
+        if (trial.number + 1) % log_every == 0:
+            print(f"  [{key}] trial {trial.number + 1}/{n_trials}: best CV RMSE Rs{study.best_value:,.0f}", flush=True)
+
+    study = optuna.create_study(direction="minimize", study_name=key,
+                                sampler=optuna.samplers.TPESampler(seed=seed, multivariate=True))
+    study.optimize(objective, n_trials=n_trials, callbacks=[report])
+    return study
+
+
+def confirm_cv(models, data, n_repeats=3, seed=7):
+    """Score several {label: model} on the SAME fresh repeated 5-fold split (different seed from the
+    searches), so the comparison is not biased toward whichever config the search happened to favour."""
+    cv = RepeatedKFold(n_splits=config.CV_FOLDS, n_repeats=n_repeats, random_state=seed)
+    out = {}
+    for label, m in models.items():
+        s = -cross_val_score(m, data["X_train"], data["y_train"], cv=cv, scoring=_RMSE, n_jobs=1)
+        out[label] = (float(s.mean()), float(s.std()))
+    return out
