@@ -1,6 +1,0 @@
-model,Repeated CV,Val RMSE,Val MAE,Val MAPE,Test RMSE*,Test MAE*,Mean rank (all),Mean rank (excl. test)
-CatBoost Regressor (tuned),2.0,3.0,2.0,1.0,4.0,3.0,2.5,2.0
-Random Forest Regressor (default),4.0,2.0,1.0,4.0,2.0,1.0,2.3333333333333335,2.75
-LightGBM Regressor (tuned),1.0,5.0,3.0,3.0,5.0,5.0,3.6666666666666665,3.0
-Gradient Boosting Regressor (default),3.0,4.0,4.0,2.0,3.0,2.0,3.0,3.25
-XGBoost Regressor (default),5.0,1.0,5.0,5.0,1.0,4.0,3.5,4.0
