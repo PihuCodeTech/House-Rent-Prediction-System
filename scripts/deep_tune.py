@@ -5,10 +5,12 @@
 
 For each model:
   1. Bayesian search on the TRAIN split (objective = repeated 5-fold CV RMSE).
-  2. Top-K trials + the library default + the earlier tuned config are re-scored on the SAME fresh
+  2. Top-K trials + the library default + the earlier tuned config (if reports/tuning/tuned_best_params.json
+     exists) are re-scored on the SAME fresh
      repeated 5x3 folds (different seed) -> pick the best by this confirmation score.
   3. Default, earlier-tuned and deep-tuned versions are evaluated on train / val / test (+ 5-fold CV)
-     with bootstrap std, written to reports/deep_tuning/. Nothing else in reports/ is touched.
+     with bootstrap std, written to reports/deep_tuning/. Nothing else in reports/ is touched; adopting a
+     result means editing FINAL_PARAMS in src/models.py by hand.
 The test set is evaluated once per config and never used to choose.
 """
 import sys, json, time, argparse, pathlib, warnings
@@ -59,7 +61,7 @@ def main():
         # --- confirmation on fresh folds: top-K + default + earlier tuned ---
         top = sorted([t for t in study.trials if t.value is not None], key=lambda t: t.value)[:TOP_K]
         cands = {f"trial_{t.number}": build_tuned_model(key, data["target_transform"], t.user_attrs["est_params"]) for t in top}
-        cands["default"] = make_model(key, data["target_transform"])
+        cands["default"] = make_model(key, data["target_transform"], use_final=False)
         if key in v1:
             cands["tuned_v1"] = build_tuned_model(key, data["target_transform"], v1[key])
         conf = confirm_cv(cands, data)
@@ -75,7 +77,7 @@ def main():
               cdf.round(0).to_string(index=False), flush=True)
 
         # --- evaluate default / tuned_v1 / deep on train, val, test ---
-        variants = {"default": make_model(key, data["target_transform"])}
+        variants = {"default": make_model(key, data["target_transform"], use_final=False)}
         if key in v1:
             variants["tuned_v1"] = build_tuned_model(key, data["target_transform"], v1[key])
         variants["deep"] = build_tuned_model(key, data["target_transform"], deep_params[key])
@@ -86,7 +88,7 @@ def main():
             save_results(res, pred, data, metrics_dir=mdir, predictions_dir=pdir)
             if var == "deep":
                 plot_diagnostics(res, pred, data, model, f"{display_name(key)} (deep-tuned)",
-                                 save_path=str(config.VIZ_DIR / f"{key}_deep.png"))
+                                 save_path=str(out / f"{key}_deep.png"))
             bs = {s: bootstrap_std({"train": data["y_train"], "test": data["y_test"]}[s], pred[s]) for s in ("train", "test")}
             m, sd = conf.get(var if var != "deep" else best_lab)
             rows.append({"key": key, "model": display_name(key), "variant": var,
