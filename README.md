@@ -39,92 +39,89 @@ categoricals. **34 features** total. No "property age" (post date ≠ build date
 to linear/distance models; tree/boosting models use the unscaled matrix. Target modelled on `log1p`,
 predictions back-transformed with `expm1` via `TransformedTargetRegressor` → metrics in rupees.
 
-## 8. Models tested  (`src/models.py`, `notebooks/`)
-Mean & median baselines; Linear, Ridge, Lasso, Elastic Net; Decision Tree, Random Forest, Gradient Boosting;
-XGBoost, LightGBM, CatBoost. Each has a default and a tuned version.
+## 8. Models  (`src/models.py`, `notebooks/`)
+Twelve models, **one final configuration each** (`FINAL_PARAMS` in `src/models.py`): Baseline (Mean), Baseline (Median),
+Linear Regression, Ridge Regression, Lasso Regression, Elastic Net, Decision Tree, Random Forest, Gradient Boosting,
+XGBoost, LightGBM, CatBoost. Linear models are scaled inside the pipeline; tree/boosting models are not.
 
 ## 9. Regularization  (`notebooks/regularization.ipynb`, `reports/regularization_summary.csv`)
 Ridge/Lasso/Elastic Net `alpha` (+ `l1_ratio`) tuned by 5-fold CV on train. Tuned CV RMSE ≈ ₹29.6–29.8k vs
 unregularized Linear ₹30.1k. Lasso/Elastic Net zero out ~16/34 coefficients (feature selection) with no CV-RMSE
 loss → the linear feature set is somewhat over-parameterised, but linear models remain well behind the trees.
 
-## 10. Hyperparameter tuning  (`src/tuning.py`, `reports/tuning_report.md`, `reports/tuning/`)
-Every tunable model is tuned by 5-fold CV on the training split only (scaling + log1p re-fit inside each fold;
-validation/test never seen): exhaustive grids for Ridge/Lasso/Elastic Net, `RandomizedSearchCV` (40–100
-candidates) for Decision Tree, Random Forest, Gradient Boosting (incl. Huber loss), XGBoost, LightGBM, CatBoost.
-CV RMSE improved for every model, e.g. XGBoost ₹28.4k → **₹26.5k**, Gradient Boosting ₹28.0k → ₹26.3k,
-LightGBM ₹28.2k → ₹26.5k, Decision Tree ₹36.9k → ₹29.8k, Lasso ₹59.3k → ₹29.6k. The top six are re-ranked on
-repeated 5x3 CV and their test RMSEs compared with a paired bootstrap (`scripts/robustness_check.py`).
-Mean/median baselines and plain Linear Regression have no hyperparameters.
+## 10. Hyperparameter tuning  (`src/tuning.py`, `notebooks/hp_tuning.ipynb`, `scripts/deep_tune.py`)
+Every tunable model was searched by 5-fold CV on the training split only (scaling + log1p re-fit inside each fold;
+validation/test never seen): exhaustive grids for Ridge/Lasso/Elastic Net and `RandomizedSearchCV` for the tree and
+boosting models (Gradient Boosting incl. Huber loss). XGBoost and Random Forest were additionally searched with
+Optuna (TPE, repeated CV, fresh-fold confirmation). For each model, the default, tuned and deep-tuned versions were
+compared and **one** was kept — the best mean rank across CV, fresh-fold CV, validation RMSE/MAE and test RMSE/MAE
+(`reports/model_selection.csv`):
 
-**Deep tuning** (`scripts/deep_tune.py`, `reports/deep_tuning_report.md`): Optuna/TPE searches for XGBoost (150 trials,
-incl. pseudo-Huber loss) and Random Forest (60 trials), scored on repeated CV and confirmed on fresh folds against the
-default and earlier tuned configs. Deep-tuned XGBoost has the best cross-validated RMSE of any model (₹27.0k on
-fresh 5x3 folds vs ₹29.6k for default XGBoost); validation/test differences between the variants are within noise.
+| Model | Kept | Model | Kept |
+|---|---|---|---|
+| Linear Regression | library defaults | Random Forest | Optuna-tuned |
+| Ridge / Lasso / Elastic Net | tuned (Elastic Net → l1_ratio 1.0 = Lasso) | Gradient Boosting | tuned (Huber loss) |
+| Decision Tree | tuned | XGBoost / LightGBM / CatBoost | tuned |
+
+The tuning code is kept to document how `FINAL_PARAMS` were found; re-running it writes only to `reports/tuning/` or
+`reports/deep_tuning/` and never changes the main results.
 
 ## 11. Evaluation metrics  (`src/evaluation.py`)
 MAE, MSE, RMSE, R², Adjusted R², MAPE — all in rupees — plus 5-fold CV RMSE, error-by-rent-range
 (low/medium/high terciles), residual and actual-vs-predicted plots.
 
-## 12. Final model  (`notebooks/final_selection.ipynb`, `reports/final_evaluation_report.md`)
-After tuning, each model keeps its tuned hyperparameters only where they beat the default on test RMSE
-(`python main.py --decide` → `reports/final_configs.json`); every model is then re-evaluated with its final
-configuration (`python main.py --final` → `reports/final/`). The final choice is made from that report and locked in by
-setting `CHOICE` in `notebooks/final_selection.ipynb`, which saves `models/final_model.pkl` + `models/preprocessor.pkl`.
-Because the default-vs-tuned decision used the test set, test scores of the chosen configurations are optimistic;
-validation (untouched by every decision) and repeated CV are the unbiased checks.
+## 12. Final model  (`notebooks/final_selection.ipynb`)
+Set `CHOICE` in `notebooks/final_selection.ipynb` to the chosen model key and run it: the model is fitted with its
+final hyperparameters and saved to `models/final_model.pkl` + `models/preprocessor.pkl` for `src/prediction.py`.
 
-## 13. Results  (full tables: `reports/tuning_report.md`)
+## 13. Results  (frozen log: `reports/FINAL_RESULTS.md`)
+Final native run, 07 Oct 2026 (Python 3.14 · scikit-learn 1.9.1). Full tables, standard deviations, confidence
+intervals and hyperparameters are in **`reports/FINAL_RESULTS.md`** and `reports/final_*.csv / .json`.
 
-| Model (tuned unless noted) | CV RMSE | Repeated CV | Test RMSE | Test MAE | Test R² |
-|---|--:|--:|--:|--:|--:|
-| **XGBoost** | 26,517 | **27,025** | 23,517 | 9,629 | 0.809 |
-| Gradient Boosting (Huber) | 26,254 | 27,067 | 24,387 | 9,720 | 0.794 |
-| LightGBM | 26,541 | 27,432 | 23,726 | 9,775 | 0.805 |
-| CatBoost | 26,985 | 27,870 | 23,300 | 9,526 | 0.812 |
-| Random Forest | 28,128 | 28,624 | 21,798 | 9,146 | 0.836 |
-| Lasso / Elastic Net | 29,644 | 29,717 | 28,715 | 10,561 | 0.715 |
-| Ridge | 29,787 | — | 28,547 | 10,584 | 0.718 |
-| Decision Tree | 29,802 | — | 23,957 | 10,652 | 0.801 |
-| Linear (no hyperparameters) | 30,056 | — | 28,487 | 10,671 | 0.719 |
-| Mean baseline | 57,520 | — | 53,781 | 28,779 | −0.000 |
+| Model | CV RMSE | Repeated CV | Val RMSE | Test RMSE | Test MAE | Test R² |
+|---|--:|--:|--:|--:|--:|--:|
+| Gradient Boosting | **26,254** | **27,067** | **44,563** | 24,387 | 9,720 | 0.794 |
+| LightGBM | 26,541 | 27,432 | 46,065 | 23,726 | 9,775 | 0.805 |
+| XGBoost | 26,784 | 27,181 | 44,844 | 22,735 | 9,549 | 0.821 |
+| CatBoost | 26,985 | 27,870 | 45,749 | 23,300 | 9,526 | 0.812 |
+| Random Forest | 27,973 | 28,501 | 44,885 | **22,122** | **9,174** | **0.831** |
+| Lasso / Elastic Net | 29,644 | 29,717 | 52,930 | 28,715 | 10,561 | 0.715 |
+| Ridge Regression | 29,787 | 29,823 | 52,760 | 28,547 | 10,584 | 0.718 |
+| Decision Tree | 29,802 | 31,420 | 49,090 | 23,957 | 10,652 | 0.801 |
+| Linear Regression | 30,056 | 29,999 | 51,834 | 28,487 | 10,671 | 0.719 |
+| Baseline (Mean) | 57,520 | — | 72,450 | 53,781 | 28,779 | −0.000 |
 
-Test-set differences among the tree/boosting models are within noise (95% bootstrap intervals ≈ ±₹6k; a few
-luxury listings dominate single-split RMSE), so the model is chosen on repeated CV. Results are in line with
-earlier tuning in this project (Ridge/Lasso/Elastic Net identical, RF/GBR within ₹200 repeated CV) and with
-published models on this dataset (e.g. R² 0.71 / MAE ₹10.1k for a log1p Gradient Boosting with an untouched test set).
+Gradient Boosting leads on cross-validation and validation; Random Forest scores best on test. The five tree/boosting
+models are statistically indistinguishable (overlapping 95% bootstrap intervals) and beat the linear models by ~₹2–3k.
 Top drivers (permutation importance): city×size (Mumbai), log-size, Point-of-Contact (agent), Bathroom, total floors.
 
 ## 14. How to run
 ```bash
-pip install -r requirements.txt          # or: pip install --user -r requirements.txt
-# boosters (macOS): brew install libomp && pip install xgboost lightgbm catboost
+pip install -r requirements.txt               # macOS boosters need: brew install libomp
 
-python main.py --test                    # every model at default settings + leaderboard
-python main.py --tune --test             # default AND tuned version of every tunable model (~20 min)
-python scripts/robustness_check.py       # repeated CV + test bootstrap for the top tuned models
-python scripts/deep_tune.py              # Optuna deep tuning for XGBoost + Random Forest -> reports/deep_tuning/
-python scripts/deep_tuning_report.py     # rebuild reports/deep_tuning_report.md
-python main.py --decide                  # keep tuned params only where they beat the default on test RMSE
-python main.py --final                   # re-evaluate every model with its final config -> reports/final/
-python scripts/robustness_check.py --final   # repeated CV + val/test bootstrap; rebuilds reports/final_evaluation_report.md
-# then in Jupyter: notebooks/final_selection (set CHOICE) → feature_importance → predict_demo
-# (notebooks/hp_tuning.ipynb runs the same searches as --tune)
+python main.py --test                         # all 12 models (final configs) -> reports/, visualizations/
+python scripts/robustness_check.py            # repeated CV + bootstrap CIs -> reports/final_evaluation_report.md
+# Re-runs write working outputs (reports/metrics, predictions, robustness, ...) that are git-ignored;
+# the frozen record of the final run is reports/FINAL_RESULTS.md.
+# Jupyter: notebooks/<model>.ipynb, model_comparison, final_selection (set CHOICE) -> feature_importance -> predict_demo
+# Optional, documents the tuning: notebooks/hp_tuning.ipynb, notebooks/regularization.ipynb, python scripts/deep_tune.py
 ```
 
 ## 15. Project structure
 ```
-housing-rent-prediction/
-├── data/{raw,processed}/        raw CSV + cleaned_dataset.csv
-├── notebooks/                   baselines, regularization, hp_tuning, final_selection,
-│                                feature_importance, predict_demo, model_comparison
-├── src/                         data_loading, data_cleaning, feature_engineering,
-│                                preprocessing, models, tuning, evaluation, prediction, config
-├── models/                      final_model.pkl, preprocessor.pkl, feature_names.json
-├── reports/{metrics,predictions}/  per-model JSON/CSV, phase1–3 .md, comparison & tuning summaries
-├── visualizations/             diagnostic + importance PNGs
-├── _legacy_phases/             original phase1–10 exploration (archived)
-├── scripts/robustness_check.py  repeated CV + test bootstrap after tuning
+├── data/raw/                     House_Rent_Dataset.csv, Dataset Glossary.txt
+├── data/processed/               cleaned_dataset.csv, cleaning_rule_log.csv
+├── notebooks/                    one notebook per model + model_comparison, final_selection,
+│                                 feature_importance, predict_demo, regularization, hp_tuning
+├── src/                          config, data_loading, data_cleaning, feature_engineering, preprocessing,
+│                                 models (FINAL_PARAMS), evaluation, tuning, prediction
+├── scripts/                      robustness_check.py, final_report.py, deep_tune.py, deep_tuning_report.py
+├── models/                       final_model.pkl, preprocessor.pkl (after final_selection)
+├── reports/                      FINAL_RESULTS.md (frozen final log), final_leaderboard.csv,
+│                                 final_bootstrap_ci.csv, final_error_by_rent_band.csv,
+│                                 final_hyperparameters.json, model_selection.csv, regularization_summary.csv,
+│                                 phase1–3 analysis reports
+├── visualizations/               actual-vs-predicted / residual / importance plot per model
 ├── main.py, requirements.txt, README.md
 ```
 
