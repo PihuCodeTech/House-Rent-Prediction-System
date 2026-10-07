@@ -1,128 +1,104 @@
-"""Build reports/final_evaluation_report.md + reports/final/final_rank_aggregation.csv from the CSVs
-written by `main.py --decide`, `main.py --final` and `scripts/robustness_check.py --final`.
-
-Reads only result files (no models), so the report always reflects the latest run on this machine.
-Run automatically at the end of `python scripts/robustness_check.py --final`, or on its own.
+"""Build reports/final_evaluation_report.md (+ reports/robustness/summary_with_std.csv and
+rank_aggregation.csv) from the result files of `python main.py --test` and
+`python scripts/robustness_check.py`. Reads CSV/JSON only, so the report always matches the latest run.
 """
-import sys, json, pathlib
+import json, pathlib
+import numpy as np
 import pandas as pd
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-R, F = ROOT / "reports", ROOT / "reports" / "final"
+R = ROOT / "reports"; RB = R / "robustness"
 TOP_N = 5
-
-
-def f0(x):
-    return f"{x:,.0f}"
+f0 = lambda x: f"{x:,.0f}"
+pm = lambda m, s: f"{m:,.0f} ± {s:,.0f}"
 
 
 def build_summary(n_boot=2000, seed=42):
-    """reports/final/final_train_cv_test_summary.csv: train / CV / repeated CV / test with std
-    (bootstrap std over rows for train & test, fold std for CV)."""
-    import numpy as np
-    rep = pd.read_csv(F / "final_repeated_cv.csv").set_index("key")
+    """Train / CV / repeated CV / val / test per model, with std (bootstrap over rows for train/test,
+    fold std for CV)."""
+    rep = pd.read_csv(RB / "repeated_cv.csv").set_index("key") if (RB / "repeated_cv.csv").exists() else pd.DataFrame()
     rng = np.random.default_rng(seed); rows = []
-    for f in sorted((F / "metrics").glob("metrics_*.json")):
+    for f in sorted((R / "metrics").glob("metrics_*.json")):
         d = json.loads(f.read_text()); k = d["key"]
-        pr = pd.read_csv(F / "predictions" / f"predictions_{k}.csv")
         out = {"key": k, "model": d["model"]}
+        pr = pd.read_csv(R / "predictions" / f"predictions_{k}.csv")
         for sp in ("train", "test"):
-            q = pr[pr["split"] == sp]; y, p = q["actual_rent"].to_numpy(float), q["predicted_rent"].to_numpy(float)
+            q = pr[pr["split"] == sp]
+            if q.empty or sp not in d:
+                continue
+            y, p = q["actual_rent"].to_numpy(float), q["predicted_rent"].to_numpy(float)
             idx = rng.integers(0, len(y), size=(n_boot, len(y))); yt, yp = y[idx], p[idx]
             r2 = 1 - ((yt - yp) ** 2).sum(1) / ((yt - yt.mean(1, keepdims=True)) ** 2).sum(1)
             out.update({f"{sp}_rmse": d[sp]["RMSE"], f"{sp}_rmse_std": float(np.sqrt(((yt - yp) ** 2).mean(1)).std()),
                         f"{sp}_mae": d[sp]["MAE"], f"{sp}_mae_std": float(np.abs(yt - yp).mean(1).std()),
                         f"{sp}_r2": d[sp]["R2"], f"{sp}_r2_std": float(r2.std())})
         out.update({"cv_rmse": d["cv"]["RMSE_mean"], "cv_rmse_std": d["cv"]["RMSE_std"],
-                    "cv_mae": d["cv"]["MAE_mean"], "cv_r2": d["cv"]["R2_mean"],
-                    "rep_cv_rmse": rep["rep_cv_rmse_5x3"].get(k), "rep_cv_rmse_std": rep["rep_cv_sd"].get(k),
-                    "val_rmse": d["val"]["RMSE"]})
+                    "rep_cv_rmse": rep["rep_cv_rmse_5x3"].get(k, np.nan) if len(rep) else np.nan,
+                    "rep_cv_rmse_std": rep["rep_cv_sd"].get(k, np.nan) if len(rep) else np.nan,
+                    "val_rmse": d["val"]["RMSE"], "val_mae": d["val"]["MAE"], "val_mape": d["val"]["MAPE"]})
         rows.append(out)
-    pd.DataFrame(rows).sort_values("cv_rmse").to_csv(F / "final_train_cv_test_summary.csv", index=False)
+    s = pd.DataFrame(rows).sort_values("cv_rmse")
+    RB.mkdir(parents=True, exist_ok=True)
+    s.to_csv(RB / "summary_with_std.csv", index=False)
+    return s
 
 
 def main():
-    build_summary()
-    cfg = json.loads((R / "final_configs.json").read_text())
-    board = pd.read_csv(F / "final_leaderboard.csv").set_index("key")
-    rep = pd.read_csv(F / "final_repeated_cv.csv").set_index("key").sort_values("rep_cv_rmse_5x3")
-    vci = pd.read_csv(F / "bootstrap_val_ci.csv").set_index("model")
-    tci = pd.read_csv(F / "bootstrap_test_ci.csv").set_index("model")
-    metric = cfg.get("decided_on", "test_rmse")
-    test_flag = "*" if metric.startswith("test") else ""
-
-    # ---- rank aggregation over the strongest models (by repeated CV) ----
-    top = rep.head(TOP_N)
-    crit = {"rep_cv_rmse_5x3": "Repeated CV", "val_rmse": "Val RMSE", "val_mae": "Val MAE", "val_mape": "Val MAPE",
-            "test_rmse": f"Test RMSE{test_flag}", "test_mae": f"Test MAE{test_flag}"}
-    ranks = pd.DataFrame({lab: top[col].rank(method="min") for col, lab in crit.items()})
-    held = [lab for col, lab in crit.items() if not col.startswith("test")]
-    ranks["Mean rank (all)"] = ranks[list(crit.values())].mean(axis=1)
-    ranks["Mean rank (excl. test)"] = ranks[held].mean(axis=1)
-    ranks.insert(0, "model", top["model"])
-    ranks = ranks.sort_values(["Mean rank (excl. test)", "Mean rank (all)"])
-    ranks.to_csv(F / "final_rank_aggregation.csv", index=False)
-
+    s = build_summary().set_index("key")
+    has_test = "test_rmse" in s.columns
+    sel = pd.read_csv(R / "model_selection.csv") if (R / "model_selection.csv").exists() else None
     L = ["# Final Evaluation Report", "",
-         "_Generated by `scripts/final_report.py` from `reports/final/` on the machine that ran the pipeline._", "",
-         "## 1. Rule applied", "",
-         f"**{cfg['rule']}** (source: `reports/{cfg.get('source', 'model_comparison.csv')}`). Tuned settings stay on "
-         "record in `reports/tuned_best_params.json`; `reports/final_configs.json` records each model's configuration.", ""]
-    if test_flag:
-        L += ["> **Caveat.** Choosing default-vs-tuned by test RMSE uses the test set for model selection, so test "
-              "scores of the chosen configurations (marked \\*) are optimistically biased. The **validation set has not "
-              "been used by any tuning or revert decision**; it and repeated CV are the unbiased checks.", ""]
-    L += [f"| Model | {metric} default | {metric} tuned | Final config |", "|---|--:|--:|---|"]
-    for k, v in cfg["models"].items():
-        if f"{metric}_default" in v:
-            tag = " (override)" if "override" in v else ""
-            L.append(f"| {board.loc[k, 'model'].rsplit(' (', 1)[0]} | {f0(v[f'{metric}_default'])} | "
-                     f"{f0(v[f'{metric}_tuned'])} | **{v['config']}**{tag} |")
-    if cfg.get("overrides"):
-        L += ["", f"**Overrides (user choice):** {cfg['overrides']['rule']}."]
-        L += [f"- `{k}` → {v['config']}: {v['override']}" for k, v in cfg["models"].items() if "override" in v]
-    L += ["", "Models without hyperparameters (Linear Regression, mean/median baselines) use library defaults.", "",
-          "## 2. Final leaderboard (every model with its final configuration)", "",
-          f"| Model | CV RMSE | Repeated 5x3 CV | Val RMSE | Val MAE | Val MAPE | Test RMSE{test_flag} | Test MAE{test_flag} | Test R²{test_flag} | Train RMSE |",
-          "|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|"]
-    order = list(rep.index) + [k for k in board.index if k not in rep.index]
-    for k in order:
-        b = board.loc[k]
-        rc = f0(rep.loc[k, "rep_cv_rmse_5x3"]) if k in rep.index else "—"
-        L.append(f"| {b.model} | {f0(b.cv_rmse)} | {rc} | {f0(b.val_rmse)} | {f0(b.val_mae)} | {b.val_mape:.1%} | "
-                 f"{f0(b.test_rmse)} | {f0(b.test_mae)} | {b.test_r2:.3f} | {f0(b.train_rmse)} |")
-    L += ["", "Untuned fully grown trees (Random Forest / Decision Tree defaults) can differ slightly across CPU "
-          "architectures; every other model reproduces to the rupee across machines.", "",
-          "## 3. How certain are these rankings? (paired bootstrap, 2,000 resamples)", "",
-          f"| Model | Val RMSE (95% CI) | Test RMSE{test_flag} (95% CI) |", "|---|--:|--:|"]
-    for k in rep.index:
-        if k in vci.index and k in tci.index:
-            L.append(f"| {board.loc[k, 'model']} | {f0(vci.loc[k, 'test_rmse'])} ({f0(vci.loc[k, 'ci_low_2.5%'])}–"
-                     f"{f0(vci.loc[k, 'ci_high_97.5%'])}) | {f0(tci.loc[k, 'test_rmse'])} "
-                     f"({f0(tci.loc[k, 'ci_low_2.5%'])}–{f0(tci.loc[k, 'ci_high_97.5%'])}) |")
-    L += ["", "When intervals overlap this much, a single-split RMSE gap is not evidence that one model is better.", "",
-          f"## 4. Ranks per criterion (top {TOP_N} by repeated CV; 1 = best)", "",
-          "| Model | " + " | ".join(ranks.columns[1:]) + " |", "|---|" + "--:|" * (len(ranks.columns) - 1)]
-    for _, row in ranks.iterrows():
-        cells = [f"{row[c]:.0f}" for c in ranks.columns[1:-2]] + [f"{row.iloc[-2]:.2f}", f"**{row.iloc[-1]:.2f}**"]
-        L.append(f"| {row['model']} | " + " | ".join(cells) + " |")
-    best = {lab: top.loc[top[col].idxmin(), "model"] for col, lab in crit.items()}
-    L += ["", "## 5. Summary", ""]
-    L += [f"- **Best on {lab}:** {m}" for lab, m in best.items()]
-    L += [f"- **Most consistent (best mean rank excluding test):** {ranks.iloc[0]['model']} "
-          f"({ranks.iloc[0]['Mean rank (excl. test)']:.2f})",
-          f"- **Best mean rank including test:** {ranks.sort_values('Mean rank (all)').iloc[0]['model']} "
-          f"({ranks['Mean rank (all)'].min():.2f})", ""]
-    gaps = board.loc[top.index, "cv_rmse"] - board.loc[top.index, "train_rmse"]
-    L += ["Overfitting check (CV RMSE minus train RMSE; larger = more overfit): " +
-          ", ".join(f"{board.loc[k, 'model']} ₹{f0(g)}" for k, g in gaps.sort_values().items()), "",
-          "## 6. Next step", "",
-          "Set `CHOICE` in `notebooks/final_selection.ipynb` to the chosen model key and run it to save "
-          "`models/final_model.pkl` with that model's final configuration.", "",
-          "Reproduce: `python main.py --decide` → `python main.py --final` → `python scripts/robustness_check.py --final`."]
+         "_Generated by `scripts/final_report.py` from the latest `python main.py --test` and "
+         "`python scripts/robustness_check.py` run._", "",
+         "Every model uses the identical prepared data (same rows, features and 70/15/15 split, `random_state=42`) "
+         "and **one final configuration** (`src/models.py → FINAL_PARAMS`).", ""]
+    if sel is not None:
+        chosen = sel[sel["selected"]].set_index("key")
+        L += ["## 1. Final configuration per model", "",
+              "Chosen by the best mean rank across CV, fresh-fold CV, validation RMSE/MAE and test RMSE/MAE among "
+              "the default, tuned and (XGBoost / Random Forest) deep-tuned versions — see `reports/model_selection.csv`.", "",
+              "| Model | Configuration | How the hyperparameters were found |", "|---|---|---|"]
+        for k in s.index:
+            if k in chosen.index:
+                L.append(f"| {s.loc[k, 'model']} | {chosen.loc[k, 'variant']} | {chosen.loc[k, 'param_source']} |")
+        L += ["", "Because test scores were one of the six selection criteria, test results are slightly optimistic; "
+              "validation and repeated CV are the cleaner checks.", ""]
+    L += ["## 2. Leaderboard (sorted by 5-fold CV RMSE, rupees)", "",
+          "| Model | Train RMSE | CV RMSE | Repeated CV (5x3) | Val RMSE | Val MAE | " +
+          ("Test RMSE | Test MAE | Test R² |" if has_test else ""),
+          "|---|--:|--:|--:|--:|--:|" + ("--:|--:|--:|" if has_test else "")]
+    for k, r in s.iterrows():
+        rc = pm(r.rep_cv_rmse, r.rep_cv_rmse_std) if not pd.isna(r.rep_cv_rmse) else "—"
+        row = f"| {r.model} | {pm(r.train_rmse, r.train_rmse_std)} | {pm(r.cv_rmse, r.cv_rmse_std)} | {rc} | {f0(r.val_rmse)} | {f0(r.val_mae)} |"
+        if has_test:
+            row += f" {pm(r.test_rmse, r.test_rmse_std)} | {pm(r.test_mae, r.test_mae_std)} | {r.test_r2:.3f} ± {r.test_r2_std:.3f} |"
+        L.append(row)
+    L += ["", "± = bootstrap std over rows (train, test) or std across folds (CV).", ""]
+    for split, title in (("val", "Validation"), ("test", "Test")):
+        p = RB / f"bootstrap_{split}_ci.csv"
+        if p.exists():
+            ci = pd.read_csv(p)
+            L += [f"## {title} RMSE — 95% bootstrap intervals", "", "| Model | RMSE | 95% CI |", "|---|--:|--:|"]
+            L += [f"| {r.display} | {f0(r.test_rmse)} | {f0(r['ci_low_2.5%'])} – {f0(r['ci_high_97.5%'])} |" for _, r in ci.iterrows()]
+            L += [""]
+    top = s[~s.index.str.startswith("baseline")].dropna(subset=["rep_cv_rmse"]).sort_values("rep_cv_rmse").head(TOP_N)
+    if len(top) and has_test:
+        crit = {"rep_cv_rmse": "Repeated CV", "val_rmse": "Val RMSE", "val_mae": "Val MAE", "val_mape": "Val MAPE",
+                "test_rmse": "Test RMSE", "test_mae": "Test MAE"}
+        ranks = pd.DataFrame({lab: top[c].rank(method="min") for c, lab in crit.items()})
+        ranks["Mean rank (all)"] = ranks.mean(axis=1)
+        ranks["Mean rank (excl. test)"] = ranks[["Repeated CV", "Val RMSE", "Val MAE", "Val MAPE"]].mean(axis=1)
+        ranks.insert(0, "model", top["model"]); ranks = ranks.sort_values(["Mean rank (all)", "Mean rank (excl. test)"])
+        ranks.to_csv(RB / "rank_aggregation.csv", index=False)
+        L += [f"## Ranks per criterion (top {TOP_N} by repeated CV; 1 = best)", "",
+              "| Model | " + " | ".join(ranks.columns[1:]) + " |", "|---|" + "--:|" * (len(ranks.columns) - 1)]
+        for _, r in ranks.iterrows():
+            L.append(f"| {r['model']} | " + " | ".join(f"{r[c]:.0f}" for c in ranks.columns[1:-2]) +
+                     f" | **{r.iloc[-2]:.2f}** | {r.iloc[-1]:.2f} |")
+        gaps = (top["cv_rmse"] - top["train_rmse"]).sort_values()
+        L += ["", "Overfitting check (CV RMSE − train RMSE): " + ", ".join(f"{top.loc[k, 'model']} ₹{f0(g)}" for k, g in gaps.items()), ""]
     (R / "final_evaluation_report.md").write_text("\n".join(L))
-    print("-> reports/final_evaluation_report.md, reports/final/final_rank_aggregation.csv, reports/final/final_train_cv_test_summary.csv")
-    print(ranks.round(2).to_string(index=False))
+    print("-> reports/final_evaluation_report.md, reports/robustness/summary_with_std.csv")
 
 
 if __name__ == "__main__":
