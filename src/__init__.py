@@ -1,7 +1,6 @@
-"""Housing-rent-prediction source package.
+"""House rent prediction — the shared pipeline every notebook imports.
 
-Single source of truth for the data pipeline so every model notebook runs the
-IDENTICAL preparation (same rows, features, split, seed) directly from
-House_Rent_Dataset.csv. Import, don't copy-paste.
+config (settings) · data_loading · data_cleaning · feature_engineering · preprocessing (prepare_data) ·
+models (registry, FINAL_PARAMS) · tuning · evaluation (multi-seed runs, results.csv) · plotting ·
+prediction (saved models, input validation, predict_listing).
 """
-from . import config          # noqa: F401
