@@ -1,95 +1,73 @@
-"""Feature engineering: stateless derivations (pre-split) + the fitted FeatureBuilder (train only)."""
+"""Feature engineering: stateless derivations (safe before the split) and the fitted FeatureBuilder.
+
+Numeric features (34 in total with the encoders in preprocessing.py):
+    BHK, Bathroom, log1p of size / BHK / bathrooms, current and total floors, floor ratio, basement flag,
+    log1p(total floors), and log1p(size) crossed with each city.
+The posting date is not used: listings span only a few months of 2022, and it is not a property attribute.
+"""
+
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.impute import SimpleImputer
-from .config import FEATURE_GROUPS
+
 from .data_cleaning import LogIQRClipper
+
+FB_INPUT_COLS = ["BHK", "Bathroom", "Size", "current_floor", "total_floors", "City"]
+CAT_COLS = ["City", "Furnishing Status", "Area Type", "Tenant Preferred", "Point of Contact"]
 
 
 def add_stateless_features(df):
-    """Derivations that use no cross-row statistics -> safe before the split."""
+    """Row-wise derivations that use no statistics across rows (safe before the split)."""
     df = df.copy()
-    df["locality_key"] = df["City"] + " | " + df["Area Locality"]
-    df["posted_month"] = df["posted_date"].dt.month.astype("float64")
-    df["posted_dow"] = df["posted_date"].dt.dayofweek.astype("float64")
+    df["locality_key"] = df["City"] + " | " + df["Area Locality"]  # same locality name can exist in two cities
     return df
 
 
-FB_INPUT_COLS = ["BHK", "Bathroom", "Size", "current_floor", "total_floors", "posted_date",
-                 "posted_month", "posted_dow", "City"]
-
-
 class FeatureBuilder(BaseEstimator, TransformerMixin):
-    """Numeric feature construction; parameters learned on the fit data (train / CV fold-train only)."""
-    def __init__(self, groups=FEATURE_GROUPS, clip_k=1.5):
-        self.groups = groups
+    """Numeric features. Learns (on the fit rows only): the Size lower clip, the floor imputation medians
+    and the list of cities for the city × size interactions."""
+
+    def __init__(self, clip_k=1.5):
         self.clip_k = clip_k
 
     def fit(self, X, y=None):
-        X = pd.DataFrame(X, columns=FB_INPUT_COLS) if not hasattr(X, "columns") else X
-        self.clipper_ = LogIQRClipper(k=self.clip_k, side="lower").fit(X[["Size"]])
+        """Learn the Size clip, floor medians and city list from the fit rows."""
+        X = self._frame(X)
+        self.clipper_ = LogIQRClipper(k=self.clip_k).fit(X[["Size"]])
         self.floor_imputer_ = SimpleImputer(strategy="median").fit(X[["current_floor", "total_floors"]])
-        self.start_date_ = pd.to_datetime(X["posted_date"]).min()
         self.cities_ = sorted(X["City"].unique())
         self.feature_names_out_ = np.asarray(list(self._build(X.head(2)).columns), dtype=object)
         self.n_features_in_ = X.shape[1]
         return self
 
+    def transform(self, X):
+        """Build the numeric feature matrix (float64)."""
+        return self._build(self._frame(X)).to_numpy("float64")
+
+    def get_feature_names_out(self, input_features=None):
+        """Names of the numeric features, in column order."""
+        return self.feature_names_out_
+
+    @staticmethod
+    def _frame(X):
+        return X if hasattr(X, "columns") else pd.DataFrame(X, columns=FB_INPUT_COLS)
+
     def _build(self, X):
-        g = set(self.groups)
         out = pd.DataFrame(index=X.index)
         size = self.clipper_.transform(X[["Size"]]).ravel()
         bhk, bath = X["BHK"].to_numpy("float64"), X["Bathroom"].to_numpy("float64")
         out["BHK"], out["Bathroom"] = bhk, bath
-        if "size_raw" in g:
-            out["size"] = size
-        if "log" in g:
-            out["log_size"], out["log_bhk"], out["log_bath"] = np.log1p(size), np.log1p(bhk), np.log1p(bath)
-        if "floor" in g:
-            fl = self.floor_imputer_.transform(X[["current_floor", "total_floors"]])
-            cur, tot = fl[:, 0], np.maximum(fl[:, 1], fl[:, 0])
-            out["current_floor"], out["total_floors"] = cur, tot
-            out["floor_ratio"] = np.clip(cur, 0, None) / np.maximum(tot, 1)
-            out["is_basement"] = (cur < 0).astype("float64")
-            out["log_total_floors"] = np.log1p(tot)
-        if "ratios" in g:
-            out["size_per_bhk"] = size / bhk
-            out["log_size_per_bhk"] = np.log1p(size / bhk)
-            out["bath_per_bhk"] = bath / bhk
-        if "date" in g:
-            out["days_since_start"] = (pd.to_datetime(X["posted_date"]) - self.start_date_).dt.days.to_numpy("float64")
-            out["posted_month"] = X["posted_month"].to_numpy("float64")
-        if "dow" in g:
-            out["posted_dow"] = X["posted_dow"].to_numpy("float64")
-        if "city_x_size" in g:
-            ls = np.log1p(size)
-            for c in self.cities_:
-                out[f"logsize_x_{c}"] = ls * (X["City"].to_numpy() == c)
+        out["log_size"], out["log_bhk"], out["log_bath"] = np.log1p(size), np.log1p(bhk), np.log1p(bath)
+
+        floors = self.floor_imputer_.transform(X[["current_floor", "total_floors"]])
+        current, total = floors[:, 0], np.maximum(floors[:, 1], floors[:, 0])
+        out["current_floor"], out["total_floors"] = current, total
+        out["floor_ratio"] = np.clip(current, 0, None) / np.maximum(total, 1)
+        out["is_basement"] = (current < 0).astype("float64")
+        out["log_total_floors"] = np.log1p(total)
+
+        log_size = np.log1p(size)
+        for city in self.cities_:
+            out[f"logsize_x_{city}"] = log_size * (X["City"].to_numpy() == city)
         return out
-
-    def transform(self, X):
-        X = pd.DataFrame(X, columns=FB_INPUT_COLS) if not hasattr(X, "columns") else X
-        return self._build(X).to_numpy("float64")
-
-    def get_feature_names_out(self, input_features=None):
-        return self.feature_names_out_
-
-
-class LocalityCountEncoder(BaseEstimator, TransformerMixin):
-    """log1p(number of TRAIN rows sharing the locality); unseen -> 0. Uses no target."""
-    def fit(self, X, y=None):
-        s = pd.Series(np.asarray(X).ravel())
-        self.counts_ = s.value_counts().to_dict()
-        self.n_features_in_ = 1
-        return self
-
-    def transform(self, X):
-        s = pd.Series(np.asarray(X).ravel())
-        return np.log1p(s.map(self.counts_).fillna(0).to_numpy("float64")).reshape(-1, 1)
-
-    def get_feature_names_out(self, input_features=None):
-        return np.asarray(["locality_count_log"], dtype=object)
-
-
-CAT_COLS = ["City", "Furnishing Status", "Area Type", "Tenant Preferred", "Point of Contact"]
