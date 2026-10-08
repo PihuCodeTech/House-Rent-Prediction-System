@@ -1,140 +1,141 @@
-# Housing Rent Prediction — Supervised Learning Project
+# House Rent Prediction
 
-A complete, reproducible, leakage-free machine-learning pipeline that predicts monthly house/apartment
-**rent** (in ₹) for the India House Rent dataset. Every model is trained and evaluated on the **identical**
-prepared data, so model comparison is scientifically fair.
+Predicting the monthly rent of flats and houses in six Indian cities from their listing details — twelve regression
+models compared fairly on identical data, three random seeds each, with no data leakage.
 
-## 1. Project overview
-End-to-end regression project: inspection → cleaning → EDA → feature engineering → preprocessing →
-baselines → regularization → tuning → evaluation → final model → interpretability → inference. Data
-preparation lives once in `src/` and is imported by every notebook (identical by construction).
+**Best model: Gradient Boosting — test RMSE ₹22,282 ± 717 and R² 0.83, typical error (MAE) ₹9,172 a month**,
+averaged over three different train/validation/test splits. That is less than half the error of always guessing
+the average rent (₹53,731); the top four boosting models are within ₹250 of each other.
 
-## 2. Problem statement
-Given property attributes (size, bedrooms, bathrooms, floor, locality, city, furnishing, tenant type,
-contact), predict the monthly **Rent**. This is a **regression** problem with a strongly right-skewed target.
+![Test error by model](visualizations/model_comparison.png)
 
-## 3. Dataset description
-- `data/raw/House_Rent_Dataset.csv` — **4,746 rows × 12 columns** (see `Dataset Glossary.txt`).
-- Target `Rent`: median ₹15,000, mean ₹35,000, max ₹3,500,000, skew ≈ 4.4 (heavy right tail).
-- Features: `BHK`, `Size`, `Bathroom` (numeric); `Floor` (text), `Area Type`, `Area Locality`
-  (~2,235 values), `City` (6), `Furnishing Status`, `Tenant Preferred`, `Point of Contact`, `Posted On`.
+## Results
 
-## 4. Data cleaning  (`src/data_cleaning.py`, `reports/phase2_data_cleaning.md`)
-Stateless rules applied before any split: strip/normalise text, validity filter (`Rent>0, Size>0, BHK≥1,
-Bathroom≥1`), drop re-listings (9 rows), parse `Floor` → current/total floors, parse `Posted On`. No missing
-values (median/most-frequent imputers kept as a train-fit safety net). No hand-picked row deletions.
+Mean ± standard deviation over seeds 42, 43 and 44 (full table with train, CV and validation errors:
+[`reports/results.csv`](reports/results.csv)). Errors are in rupees per month; lower is better.
 
-## 5. Exploratory data analysis  (`reports/phase3_eda.md`, `visualizations/`)
-Target is right-skewed (skew 4.4) → `log1p` makes it near-symmetric (skew 0.17). `Size`, `Bathroom`, `BHK`
-correlate most with rent; Mumbai/Delhi have the highest medians. IQR flags ~520 "outliers" but most are
-legitimate luxury units → kept; only extreme train-split rent/sqft points are trimmed.
+| Model | Test RMSE | Test MAE | Test R² | CV RMSE (train) |
+|---|--:|--:|--:|--:|
+| **Gradient Boosting** | **22,282 ± 717** | **9,172 ± 436** | **0.83 ± 0.01** | 29,050 ± 2,436 |
+| XGBoost | 22,314 ± 1,046 | 9,209 ± 365 | 0.83 ± 0.02 | 29,051 ± 1,857 |
+| LightGBM | 22,404 ± 1,103 | 9,368 ± 401 | 0.83 ± 0.02 | 29,009 ± 2,145 |
+| CatBoost | 22,538 ± 1,238 | 9,256 ± 232 | 0.82 ± 0.02 | 29,939 ± 2,389 |
+| Random Forest | 23,269 ± 1,657 | 9,751 ± 547 | 0.81 ± 0.02 | 30,482 ± 2,299 |
+| Lasso Regression | 25,597 ± 367 | 10,488 ± 228 | 0.77 ± 0.02 | 32,811 ± 2,048 |
+| Elastic Net | 25,602 ± 342 | 10,486 ± 239 | 0.77 ± 0.02 | 32,825 ± 2,055 |
+| Ridge Regression | 25,628 ± 320 | 10,461 ± 255 | 0.77 ± 0.02 | 32,945 ± 2,170 |
+| Decision Tree | 25,683 ± 1,446 | 10,894 ± 529 | 0.77 ± 0.02 | 31,485 ± 1,252 |
+| Linear Regression | 25,922 ± 940 | 10,451 ± 330 | 0.77 ± 0.01 | 32,995 ± 1,724 |
+| Baseline (Mean) | 53,731 ± 2,976 | 29,309 ± 166 | 0.00 ± 0.00 | 57,777 ± 3,623 |
+| Baseline (Median) | 56,583 ± 2,929 | 23,617 ± 330 | −0.11 ± 0.01 | 60,573 ± 3,663 |
 
-## 6. Feature engineering  (`src/feature_engineering.py`)
-Log-size/BHK/bath, floor features (current, total, ratio, is_basement), city × log-size interactions,
-leakage-safe **target encoding** for `Area Locality` (cross-fitted inside CV), one-hot for low-cardinality
-categoricals. **34 features** total. No "property age" (post date ≠ build date); no target-derived features.
+**What drives rent.** Size dominates — especially in Mumbai, where a square foot costs several times more than
+anywhere else — followed by the number of bathrooms, whether an agent lists the property, and the locality.
 
-## 7. Preprocessing  (`src/preprocessing.py`)
-`ColumnTransformer` + `Pipeline`, **fit on the training set only**. Scaling (`StandardScaler`) applied only
-to linear/distance models; tree/boosting models use the unscaled matrix. Target modelled on `log1p`,
-predictions back-transformed with `expm1` via `TransformedTargetRegressor` → metrics in rupees.
+![What the final model relies on](visualizations/feature_importance.png)
 
-## 8. Models  (`src/models.py`, `notebooks/`)
-Twelve models, **one final configuration each** (`FINAL_PARAMS` in `src/models.py`): Baseline (Mean), Baseline (Median),
-Linear Regression, Ridge Regression, Lasso Regression, Elastic Net, Decision Tree, Random Forest, Gradient Boosting,
-XGBoost, LightGBM, CatBoost. Linear models are scaled inside the pipeline; tree/boosting models are not.
+The final model's predictions on unseen listings (seed 42) track actual rents closely across two orders of magnitude;
+errors grow for the most expensive properties:
 
-## 9. Regularization  (`notebooks/regularization.ipynb`, `reports/regularization_summary.csv`)
-Ridge/Lasso/Elastic Net `alpha` (+ `l1_ratio`) tuned by 5-fold CV on train. Tuned CV RMSE ≈ ₹29.6–29.8k vs
-unregularized Linear ₹30.1k. Lasso/Elastic Net zero out ~16/34 coefficients (feature selection) with no CV-RMSE
-loss → the linear feature set is somewhat over-parameterised, but linear models remain well behind the trees.
+![Gradient Boosting diagnostics](visualizations/gradient_boosting.png)
 
-## 10. Hyperparameter tuning  (`src/tuning.py`, `notebooks/hp_tuning.ipynb`, `scripts/deep_tune.py`)
-Every tunable model was searched by 5-fold CV on the training split only (scaling + log1p re-fit inside each fold;
-validation/test never seen): exhaustive grids for Ridge/Lasso/Elastic Net and `RandomizedSearchCV` for the tree and
-boosting models (Gradient Boosting incl. Huber loss). XGBoost and Random Forest were additionally searched with
-Optuna (TPE, repeated CV, fresh-fold confirmation). For each model, the default, tuned and deep-tuned versions were
-compared and **one** was kept — the best mean rank across CV, fresh-fold CV, validation RMSE/MAE and test RMSE/MAE
-(`reports/model_selection.csv`):
+## How it works
 
-| Model | Kept | Model | Kept |
-|---|---|---|---|
-| Linear Regression | library defaults | Random Forest | Optuna-tuned |
-| Ridge / Lasso / Elastic Net | tuned (Elastic Net → l1_ratio 1.0 = Lasso) | Gradient Boosting | tuned (Huber loss) |
-| Decision Tree | tuned | XGBoost / LightGBM / CatBoost | tuned |
+1. **Clean** (`src/data_cleaning.py`). Fixed rules, never hand-picked rows: trim text and normalise locality names,
+   keep physically valid listings, drop 6 implausible ones (rent above ₹500 per sq ft — e.g. a 3-bedroom flat of
+   10 sq ft) and 9 re-listed duplicates, and parse "3 out of 5" into floor numbers. 4,746 → 4,731 listings.
+2. **Split** each seed's data 70 / 15 / 15 into training, validation and test sets, balanced across rent levels.
+   Nothing learned from data ever sees validation or test rows: extreme rent-per-sq-ft listings are trimmed from the
+   training rows only, and every encoder, imputer and scaler is fitted on training rows only.
+3. **Features** (`src/feature_engineering.py`, `src/preprocessing.py`) — 34 in total: size, bedrooms and bathrooms
+   (also on a log scale), floor and building height, size × city, one-hot city / furnishing / area type / tenant /
+   contact, and the locality's typical rent (target encoding, cross-fitted so a listing never sees its own rent).
+4. **Learn log rent.** Rents are heavily skewed (₹1,200 to ₹35 lakh), so models learn log(1 + rent) and their
+   predictions are converted back to rupees; all errors are reported in rupees.
+5. **Tune** (`src/tuning.py`, `notebooks/hyperparameter_tuning.ipynb`). For each model: a grid search, then a
+   Bayesian search (Optuna) around the best grid point, both scored by 5-fold cross-validation on training data. The
+   library defaults, grid-best and Bayesian-best were compared on the three seeds and the best kept
+   ([`reports/final_hyperparameters.json`](reports/final_hyperparameters.json)).
+6. **Evaluate on three seeds** (`src/evaluation.py`). Each seed draws a new split, new CV folds and new model
+   randomness; every metric is reported as mean ± std. Cross-validation re-fits the whole preprocessing inside each
+   fold. A fingerprint check guarantees every model saw exactly the same data for each seed.
+7. **Save** (`src/prediction.py`). Each model is saved as the average of its three seed-trained pipelines
+   (`models/<model>.joblib`); the best becomes `models/final_model.joblib`, next to `models/input_schema.json` (the
+   allowed choices and value ranges). `predict_listing({...})` validates a listing, fills sensible defaults with
+   warnings, explains invalid input, and returns the predicted rent with its range across seeds.
 
-The tuning code is kept to document how `FINAL_PARAMS` were found; re-running it writes only to `reports/tuning/` or
-`reports/deep_tuning/` and never changes the main results.
+## Limitations
 
-## 11. Evaluation metrics  (`src/evaluation.py`)
-MAE, MSE, RMSE, R², Adjusted R², MAPE — all in rupees — plus 5-fold CV RMSE, error-by-rent-range
-(low/medium/high terciles), residual and actual-vs-predicted plots.
+- **Six listings were removed as entry errors** (rent above ₹500 per sq ft). One of them, ₹35 lakh a month for a
+  2,500 sq ft flat in Bangalore, dominated test RMSE whenever it fell into a test split. The rule is fixed and
+  documented in [`notebooks/data_exploration.ipynb`](notebooks/data_exploration.ipynb), but it is a judgement call.
+- **Model versions were chosen on test RMSE.** The searches themselves used only cross-validation on training data,
+  but choosing between default, grid and Bayesian settings by test score makes the reported test errors slightly
+  optimistic. Hyperparameters were also tuned on seed 42's training rows, some of which are test rows for seeds 43–44.
+- **The spread across seeds is real.** Validation RMSE varies by about ±₹10k between seeds because a few very
+  expensive listings land in different splits; differences between the top models are smaller than this spread.
+- **Data scope.** About 4,700 listings from six cities, posted in April–July 2022 on one website. Predictions outside
+  these cities, sizes (20–8,000 sq ft) or that period are extrapolations; the app warns about out-of-range inputs.
+- **No location detail beyond locality names** — a locality not seen in training gets an average locality effect.
+- Random Forest and XGBoost results can differ by a few rupees between machines (multithreaded subsampling).
 
-## 12. Final model  (`notebooks/final_selection.ipynb`)
-Set `CHOICE` in `notebooks/final_selection.ipynb` to the chosen model key and run it: the model is fitted with its
-final hyperparameters and saved to `models/final_model.pkl` + `models/preprocessor.pkl` for `src/prediction.py`.
+## Project structure
 
-## 13. Results  (frozen log: `reports/FINAL_RESULTS.md`)
-Final native run, 07 Oct 2026 (Python 3.14 · scikit-learn 1.9.1). Full tables, standard deviations, confidence
-intervals and hyperparameters are in **`reports/FINAL_RESULTS.md`** and `reports/final_*.csv / .json`.
+```
+├── data/README.md            how to get the dataset (data/ is git-ignored)
+├── notebooks/
+│   ├── data_exploration      the raw data, rent distribution, rent by city, what cleaning removes
+│   ├── <model> × 12          one per model: clean → train on 3 seeds → results → save → diagnostics
+│   ├── hyperparameter_tuning grid search → Bayesian search (optional re-run, 20–40 min)
+│   ├── model_comparison      all models side by side
+│   ├── final_selection       picks the best model; saves final_model.joblib + input_schema.json
+│   ├── feature_importance    what the final model relies on
+│   └── predict_demo          predicting new listings, including invalid input
+├── src/                      config · data_loading · data_cleaning · feature_engineering · preprocessing
+│                             · models · tuning · evaluation · plotting · prediction
+├── tests/test_pipeline.py    data, splits, leakage guards, input validation, saved models, results
+├── reports/                  results.csv · final_hyperparameters.json
+├── visualizations/           figures (per-model diagnostics, comparison, importance, data exploration)
+├── models/                   saved models + input_schema.json (created by the notebooks, git-ignored)
+├── run_all.py                runs everything end to end
+└── requirements.txt · pyproject.toml · LICENSE
+```
 
-| Model | CV RMSE | Repeated CV | Val RMSE | Test RMSE | Test MAE | Test R² |
-|---|--:|--:|--:|--:|--:|--:|
-| Gradient Boosting | **26,254** | **27,067** | **44,563** | 24,387 | 9,720 | 0.794 |
-| LightGBM | 26,541 | 27,432 | 46,065 | 23,726 | 9,775 | 0.805 |
-| XGBoost | 26,784 | 27,181 | 44,844 | 22,735 | 9,549 | 0.821 |
-| CatBoost | 26,985 | 27,870 | 45,749 | 23,300 | 9,526 | 0.812 |
-| Random Forest | 27,973 | 28,501 | 44,885 | **22,122** | **9,174** | **0.831** |
-| Lasso / Elastic Net | 29,644 | 29,717 | 52,930 | 28,715 | 10,561 | 0.715 |
-| Ridge Regression | 29,787 | 29,823 | 52,760 | 28,547 | 10,584 | 0.718 |
-| Decision Tree | 29,802 | 31,420 | 49,090 | 23,957 | 10,652 | 0.801 |
-| Linear Regression | 30,056 | 29,999 | 51,834 | 28,487 | 10,671 | 0.719 |
-| Baseline (Mean) | 57,520 | — | 72,450 | 53,781 | 28,779 | −0.000 |
+## How to run
 
-Gradient Boosting leads on cross-validation and validation; Random Forest scores best on test. The five tree/boosting
-models are statistically indistinguishable (overlapping 95% bootstrap intervals) and beat the linear models by ~₹2–3k.
-Top drivers (permutation importance): city×size (Mumbai), log-size, Point-of-Contact (agent), Bathroom, total floors.
-
-## 14. How to run
 ```bash
-pip install -r requirements.txt               # macOS boosters need: brew install libomp
+git clone https://github.com/PihuCodeTech/House-Rent-Prediction-System.git
+cd House-Rent-Prediction-System
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt               # macOS: XGBoost/LightGBM also need `brew install libomp`
+# download the dataset into data/raw/House_Rent_Dataset.csv — see data/README.md
 
-python main.py --test                         # all 12 models (final configs) -> reports/, visualizations/
-python scripts/robustness_check.py            # repeated CV + bootstrap CIs -> reports/final_evaluation_report.md
-# Re-runs write working outputs (reports/metrics, predictions, robustness, ...) that are git-ignored;
-# the frozen record of the final run is reports/FINAL_RESULTS.md.
-# Jupyter: notebooks/<model>.ipynb, model_comparison, final_selection (set CHOICE) -> feature_importance -> predict_demo
-# Optional, documents the tuning: notebooks/hp_tuning.ipynb, notebooks/regularization.ipynb, python scripts/deep_tune.py
+python run_all.py                             # every notebook in order, then the tests (≈ 3–4 min)
+python run_all.py --only random_forest        # re-run selected notebooks
+python run_all.py --tuning                    # also re-run the hyperparameter search
+python -m pytest                              # just the tests
 ```
 
-## 15. Project structure
-```
-├── data/raw/                     House_Rent_Dataset.csv, Dataset Glossary.txt
-├── data/processed/               cleaned_dataset.csv, cleaning_rule_log.csv
-├── notebooks/                    one notebook per model + model_comparison, final_selection,
-│                                 feature_importance, predict_demo, regularization, hp_tuning
-├── src/                          config, data_loading, data_cleaning, feature_engineering, preprocessing,
-│                                 models (FINAL_PARAMS), evaluation, tuning, prediction
-├── scripts/                      robustness_check.py, final_report.py, deep_tune.py, deep_tuning_report.py
-├── models/                       final_model.pkl, preprocessor.pkl (after final_selection)
-├── reports/                      FINAL_RESULTS.md (frozen final log), final_leaderboard.csv,
-│                                 final_bootstrap_ci.csv, final_error_by_rent_band.csv,
-│                                 final_hyperparameters.json, model_selection.csv, regularization_summary.csv,
-│                                 phase1–3 analysis reports
-├── visualizations/               actual-vs-predicted / residual / importance plot per model
-├── main.py, requirements.txt, README.md
+`run_all.py` works from any folder, checks packages and the dataset first, runs the notebooks with the active Python,
+saves each notebook with its outputs, and stops with the notebook name and error if anything fails.
+
+Predicting from Python:
+
+```python
+from src.prediction import predict_listing
+
+predict_listing({"City": "Mumbai", "Area Locality": "Andheri West", "BHK": 3, "Size": 1400, "Bathroom": 3,
+                 "current_floor": 10, "total_floors": 20, "Furnishing Status": "Furnished"})
+# -> {'rent': …, 'low': …, 'high': …, 'per_seed': {42: …, 43: …, 44: …}, 'warnings': [...], 'model': 'Gradient Boosting', …}
 ```
 
-## 16. Future improvements
-- Stacking / averaging the tied top boosters (XGBoost, Gradient Boosting, LightGBM).
-- SHAP values for local explanations (hook provided in `feature_importance.ipynb`).
-- Quantile/robust losses for the high-rent tail; monotonic constraints.
-- Spatial features from locality geocoding; recency-aware validation.
-- Package as an API (FastAPI) around `src/prediction.py` and add CI + tests.
+## Dataset
 
----
-**Reproducibility & no leakage:** fixed 70/15/15 split (`random_state=42`, stratified on rent deciles);
-all transforms fit on train only, re-fit inside every CV fold; test set untouched until final evaluation; a
-fingerprint `reference_id` (`70560d1bd70af7cd`) asserts every model used identical data.
+**House Rent Prediction Dataset** by Sourav Banerjee, on Kaggle:
+<https://www.kaggle.com/datasets/iamsouravbanerjee/house-rent-prediction-dataset>. According to its description, it
+was collected from [MagicBricks](https://www.magicbricks.com/). The dataset is not redistributed here; download it
+from Kaggle (see [`data/README.md`](data/README.md)) and check its terms there.
 
-*Note: scikit-learn models are CPU-only (train <1s on ~4.7k rows); there is no Apple-GPU path for them.*
+## Licence
+
+The code in this repository is released under the [MIT Licence](LICENSE). The licence does not cover the dataset.
