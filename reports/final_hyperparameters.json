@@ -1,118 +1,659 @@
 {
-  "gradient_boosting": {
-    "model": "Gradient Boosting",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "learning_rate": 0.03262161345833058,
-      "loss": "huber",
-      "max_depth": 3,
-      "max_features": 0.5,
-      "min_samples_leaf": 8,
-      "n_estimators": 885,
-      "subsample": 0.6388705975083074
-    }
-  },
-  "lightgbm_model": {
-    "model": "LightGBM",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "colsample_bytree": 0.7468977981821954,
-      "learning_rate": 0.04787304927324382,
-      "max_depth": 4,
-      "min_child_samples": 46,
-      "n_estimators": 1091,
-      "num_leaves": 58,
-      "reg_alpha": 0.00013357240411974094,
-      "reg_lambda": 0.35127047262708466,
-      "subsample": 0.7257423924305306,
-      "subsample_freq": 1
-    }
-  },
-  "xgboost_model": {
-    "model": "XGBoost",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "colsample_bytree": 0.8776807051588262,
-      "gamma": 0.001,
-      "learning_rate": 0.04749239763680407,
-      "max_depth": 3,
-      "min_child_weight": 4.059382607081596,
-      "n_estimators": 676,
-      "reg_alpha": 0.755681014127442,
-      "reg_lambda": 2.1154290797261215,
-      "subsample": 0.9757995766256756
-    }
-  },
-  "catboost_model": {
-    "model": "CatBoost",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "bagging_temperature": 0.3854165025399161,
-      "depth": 5,
-      "iterations": 864,
-      "l2_leaf_reg": 1.9970999139010037,
-      "learning_rate": 0.03483818023841825,
-      "random_strength": 1.448252288854252
-    }
-  },
-  "random_forest": {
-    "model": "Random Forest",
-    "source": "Optuna TPE on train, repeated CV + fresh-fold confirmation",
-    "params": {
-      "n_estimators": 300,
-      "max_features": 0.9789163329151185,
-      "min_samples_leaf": 3,
-      "min_samples_split": 7,
-      "max_samples": 0.7650494418729814,
-      "max_depth": 35
-    }
-  },
-  "elastic_net": {
-    "model": "Elastic Net",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "alpha": 0.0031622776601683794,
-      "l1_ratio": 1.0
-    }
-  },
-  "lasso_regression": {
-    "model": "Lasso Regression",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "alpha": 0.0031622776601683794
-    }
-  },
-  "ridge_regression": {
-    "model": "Ridge Regression",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "alpha": 15.848931924611142
-    }
-  },
-  "decision_tree": {
-    "model": "Decision Tree",
-    "source": "5-fold CV search on train (GridSearchCV for linear, RandomizedSearchCV for trees/boosting)",
-    "params": {
-      "ccp_alpha": 0.0,
-      "max_depth": 8,
-      "max_features": 0.5,
-      "min_samples_leaf": 6,
-      "min_samples_split": 17
-    }
-  },
-  "linear_regression": {
-    "model": "Linear Regression",
-    "source": "library defaults (no hyperparameters / defaults kept)",
-    "params": {}
-  },
+  "_note": "Hyperparameter tuning on the seed-42 training split: a coarse grid search, then a Bayesian (Optuna TPE) search centred on the best grid point; both minimise 5-fold CV RMSE with all preprocessing re-fit inside each fold. Library defaults, grid-best and Bayesian-best were then scored on seeds 42, 43, 44 and the version with the lowest mean test RMSE was kept. Values are hard-coded in src/models.py -> FINAL_PARAMS (empty params = library defaults). Reproduce with notebooks/hyperparameter_tuning.ipynb.",
   "baseline_mean": {
     "model": "Baseline (Mean)",
-    "source": "library defaults (no hyperparameters / defaults kept)",
+    "kept": "default",
+    "source": "library defaults (no hyperparameters to tune)",
     "params": {}
   },
   "baseline_median": {
     "model": "Baseline (Median)",
-    "source": "library defaults (no hyperparameters / defaults kept)",
+    "kept": "default",
+    "source": "library defaults (no hyperparameters to tune)",
     "params": {}
+  },
+  "linear_regression": {
+    "model": "Linear Regression",
+    "kept": "default",
+    "source": "library defaults (no hyperparameters to tune)",
+    "params": {}
+  },
+  "ridge_regression": {
+    "model": "Ridge Regression",
+    "kept": "grid",
+    "source": "grid search (5-fold CV on seed-42 train)",
+    "params": {
+      "alpha": 31.622776601683793
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 30633.58,
+      "bayesian": 30632.36
+    },
+    "grid": {
+      "space": {
+        "alpha": [
+          0.001,
+          0.0031622776601683794,
+          0.01,
+          0.03162277660168379,
+          0.1,
+          0.31622776601683794,
+          1.0,
+          3.1622776601683795,
+          10.0,
+          31.622776601683793,
+          100.0,
+          316.2277660168379,
+          1000.0
+        ]
+      },
+      "best": {
+        "alpha": 31.622776601683793
+      },
+      "n_candidates": 13
+    },
+    "bayesian": {
+      "best": {
+        "alpha": 33.68109289640676
+      },
+      "n_trials": 30
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 32954.04,
+        "val_rmse": 33759.46,
+        "test_rmse": 25865.51,
+        "test_mae": 10451.66
+      },
+      "grid": {
+        "cv_rmse": 32945.1,
+        "val_rmse": 34922.69,
+        "test_rmse": 25627.73,
+        "test_mae": 10461.25
+      },
+      "bayesian": {
+        "cv_rmse": 32956.03,
+        "val_rmse": 34964.47,
+        "test_rmse": 25632.77,
+        "test_mae": 10461.34
+      }
+    }
+  },
+  "lasso_regression": {
+    "model": "Lasso Regression",
+    "kept": "bayesian",
+    "source": "Bayesian search (Optuna TPE around the grid best, 5-fold CV on seed-42 train)",
+    "params": {
+      "alpha": 0.0020750608061092753
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 30656.32,
+      "bayesian": 30650.48
+    },
+    "grid": {
+      "space": {
+        "alpha": [
+          9.999999999999999e-06,
+          3.1622776601683795e-05,
+          0.0001,
+          0.00031622776601683794,
+          0.001,
+          0.0031622776601683794,
+          0.01,
+          0.03162277660168379,
+          0.1,
+          0.31622776601683794,
+          1.0
+        ]
+      },
+      "best": {
+        "alpha": 0.0031622776601683794
+      },
+      "n_candidates": 11
+    },
+    "bayesian": {
+      "best": {
+        "alpha": 0.0020750608061092753
+      },
+      "n_trials": 30
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 59564.73,
+        "val_rmse": 66454.51,
+        "test_rmse": 55602.13,
+        "test_mae": 23934.08
+      },
+      "grid": {
+        "cv_rmse": 32834.09,
+        "val_rmse": 34921.61,
+        "test_rmse": 25628.01,
+        "test_mae": 10484.16
+      },
+      "bayesian": {
+        "cv_rmse": 32811.02,
+        "val_rmse": 34842.27,
+        "test_rmse": 25596.64,
+        "test_mae": 10488.44
+      }
+    }
+  },
+  "elastic_net": {
+    "model": "Elastic Net",
+    "kept": "bayesian",
+    "source": "Bayesian search (Optuna TPE around the grid best, 5-fold CV on seed-42 train)",
+    "params": {
+      "alpha": 0.0024658930745310127,
+      "l1_ratio": 0.9287947846859934
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 30656.32,
+      "bayesian": 30655.83
+    },
+    "grid": {
+      "space": {
+        "alpha": [
+          9.999999999999999e-06,
+          3.1622776601683795e-05,
+          0.0001,
+          0.00031622776601683794,
+          0.001,
+          0.0031622776601683794,
+          0.01,
+          0.03162277660168379,
+          0.1,
+          0.31622776601683794,
+          1.0
+        ],
+        "l1_ratio": [
+          0.1,
+          0.3,
+          0.5,
+          0.7,
+          0.9,
+          1.0
+        ]
+      },
+      "best": {
+        "alpha": 0.0031622776601683794,
+        "l1_ratio": 1.0
+      },
+      "n_candidates": 66
+    },
+    "bayesian": {
+      "best": {
+        "alpha": 0.0024658930745310127,
+        "l1_ratio": 0.9287947846859934
+      },
+      "n_trials": 30
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 57890.34,
+        "val_rmse": 64856.89,
+        "test_rmse": 53898.75,
+        "test_mae": 22491.5
+      },
+      "grid": {
+        "cv_rmse": 32834.09,
+        "val_rmse": 34921.61,
+        "test_rmse": 25628.01,
+        "test_mae": 10484.16
+      },
+      "bayesian": {
+        "cv_rmse": 32824.69,
+        "val_rmse": 34866.14,
+        "test_rmse": 25601.6,
+        "test_mae": 10486.0
+      }
+    }
+  },
+  "decision_tree": {
+    "model": "Decision Tree",
+    "kept": "grid",
+    "source": "grid search (5-fold CV on seed-42 train)",
+    "params": {
+      "max_depth": null,
+      "max_features": 1.0,
+      "min_samples_leaf": 10
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 30043.57,
+      "bayesian": 29566.42
+    },
+    "grid": {
+      "space": {
+        "max_depth": [
+          4,
+          6,
+          8,
+          10,
+          null
+        ],
+        "min_samples_leaf": [
+          1,
+          5,
+          10,
+          20
+        ],
+        "max_features": [
+          0.5,
+          1.0
+        ]
+      },
+      "best": {
+        "max_depth": null,
+        "max_features": 1.0,
+        "min_samples_leaf": 10
+      },
+      "n_candidates": 40
+    },
+    "bayesian": {
+      "best": {
+        "max_depth": 30,
+        "min_samples_leaf": 12,
+        "min_samples_split": 6,
+        "max_features": 0.7745353259755203
+      },
+      "n_trials": 40
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 38664.08,
+        "val_rmse": 43493.53,
+        "test_rmse": 32969.33,
+        "test_mae": 13423.55
+      },
+      "grid": {
+        "cv_rmse": 31484.96,
+        "val_rmse": 32647.94,
+        "test_rmse": 25682.79,
+        "test_mae": 10893.8
+      },
+      "bayesian": {
+        "cv_rmse": 32372.72,
+        "val_rmse": 34345.43,
+        "test_rmse": 26146.48,
+        "test_mae": 10913.49
+      }
+    }
+  },
+  "random_forest": {
+    "model": "Random Forest",
+    "kept": "default",
+    "source": "library defaults",
+    "params": {},
+    "search_cv_rmse_seed42": {
+      "grid": 27800.68,
+      "bayesian": 27725.14
+    },
+    "grid": {
+      "space": {
+        "n_estimators": [
+          300
+        ],
+        "max_depth": [
+          null,
+          15
+        ],
+        "max_features": [
+          0.33,
+          0.6,
+          1.0
+        ],
+        "min_samples_leaf": [
+          1,
+          3,
+          5
+        ]
+      },
+      "best": {
+        "max_depth": 15,
+        "max_features": 1.0,
+        "min_samples_leaf": 3,
+        "n_estimators": 300
+      },
+      "n_candidates": 18
+    },
+    "bayesian": {
+      "best": {
+        "n_estimators": 322,
+        "max_depth": 11,
+        "max_features": 0.9210582566280392,
+        "min_samples_leaf": 3,
+        "min_samples_split": 3,
+        "max_samples": 0.798070764044508
+      },
+      "n_trials": 25
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 30415.59,
+        "val_rmse": 31526.26,
+        "test_rmse": 23266.91,
+        "test_mae": 9729.34
+      },
+      "grid": {
+        "cv_rmse": 29829.14,
+        "val_rmse": 30490.01,
+        "test_rmse": 23479.51,
+        "test_mae": 9657.85
+      },
+      "bayesian": {
+        "cv_rmse": 29655.45,
+        "val_rmse": 30958.54,
+        "test_rmse": 23474.25,
+        "test_mae": 9621.12
+      }
+    }
+  },
+  "gradient_boosting": {
+    "model": "Gradient Boosting",
+    "kept": "bayesian",
+    "source": "Bayesian search (Optuna TPE around the grid best, 5-fold CV on seed-42 train)",
+    "params": {
+      "n_estimators": 282,
+      "learning_rate": 0.05920605525727517,
+      "max_depth": 3,
+      "subsample": 0.540062581916704,
+      "min_samples_leaf": 20,
+      "max_features": 0.4521695605697275,
+      "loss": "huber"
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 27601.25,
+      "bayesian": 26332.97
+    },
+    "grid": {
+      "space": {
+        "n_estimators": [
+          300,
+          600
+        ],
+        "learning_rate": [
+          0.03,
+          0.1
+        ],
+        "max_depth": [
+          2,
+          3,
+          4
+        ],
+        "subsample": [
+          0.7,
+          1.0
+        ]
+      },
+      "best": {
+        "learning_rate": 0.03,
+        "max_depth": 4,
+        "n_estimators": 300,
+        "subsample": 0.7
+      },
+      "n_candidates": 24
+    },
+    "bayesian": {
+      "best": {
+        "n_estimators": 282,
+        "learning_rate": 0.05920605525727517,
+        "max_depth": 3,
+        "subsample": 0.540062581916704,
+        "min_samples_leaf": 20,
+        "max_features": 0.4521695605697275,
+        "loss": "huber"
+      },
+      "n_trials": 30
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 30316.16,
+        "val_rmse": 30610.76,
+        "test_rmse": 23291.71,
+        "test_mae": 9580.88
+      },
+      "grid": {
+        "cv_rmse": 29870.2,
+        "val_rmse": 29985.93,
+        "test_rmse": 23095.07,
+        "test_mae": 9415.6
+      },
+      "bayesian": {
+        "cv_rmse": 29049.61,
+        "val_rmse": 30882.93,
+        "test_rmse": 22281.94,
+        "test_mae": 9172.06
+      }
+    }
+  },
+  "xgboost_model": {
+    "model": "XGBoost",
+    "kept": "bayesian",
+    "source": "Bayesian search (Optuna TPE around the grid best, 5-fold CV on seed-42 train)",
+    "params": {
+      "n_estimators": 600,
+      "learning_rate": 0.03,
+      "max_depth": 3,
+      "subsample": 0.7,
+      "colsample_bytree": 0.7,
+      "min_child_weight": 1.0,
+      "reg_lambda": 1.0,
+      "reg_alpha": 0.0001
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 27114.99,
+      "bayesian": 27115.34
+    },
+    "grid": {
+      "space": {
+        "n_estimators": [
+          300,
+          600
+        ],
+        "learning_rate": [
+          0.03,
+          0.1
+        ],
+        "max_depth": [
+          3,
+          5,
+          7
+        ],
+        "subsample": [
+          0.7,
+          1.0
+        ],
+        "colsample_bytree": [
+          0.7,
+          1.0
+        ]
+      },
+      "best": {
+        "colsample_bytree": 0.7,
+        "learning_rate": 0.03,
+        "max_depth": 3,
+        "n_estimators": 600,
+        "subsample": 0.7
+      },
+      "n_candidates": 48
+    },
+    "bayesian": {
+      "best": {
+        "n_estimators": 600,
+        "learning_rate": 0.03,
+        "max_depth": 3,
+        "subsample": 0.7,
+        "colsample_bytree": 0.7,
+        "min_child_weight": 1.0,
+        "reg_lambda": 1.0,
+        "reg_alpha": 0.0001
+      },
+      "n_trials": 40
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 31709.36,
+        "val_rmse": 36794.49,
+        "test_rmse": 24313.95,
+        "test_mae": 9984.3
+      },
+      "grid": {
+        "cv_rmse": 29171.04,
+        "val_rmse": 29867.32,
+        "test_rmse": 22388.81,
+        "test_mae": 9217.57
+      },
+      "bayesian": {
+        "cv_rmse": 29187.05,
+        "val_rmse": 29867.34,
+        "test_rmse": 22388.77,
+        "test_mae": 9217.57
+      }
+    }
+  },
+  "lightgbm_model": {
+    "model": "LightGBM",
+    "kept": "bayesian",
+    "source": "Bayesian search (Optuna TPE around the grid best, 5-fold CV on seed-42 train)",
+    "params": {
+      "n_estimators": 922,
+      "learning_rate": 0.05700042878874667,
+      "num_leaves": 13,
+      "min_child_samples": 41,
+      "subsample": 0.8410987834117182,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.5009153617648229,
+      "reg_lambda": 0.17149581668128844,
+      "reg_alpha": 0.0002898115581696978
+    },
+    "search_cv_rmse_seed42": {
+      "grid": 27637.29,
+      "bayesian": 26699.77
+    },
+    "grid": {
+      "space": {
+        "n_estimators": [
+          300,
+          600
+        ],
+        "learning_rate": [
+          0.03,
+          0.1
+        ],
+        "num_leaves": [
+          15,
+          31,
+          63
+        ],
+        "min_child_samples": [
+          10,
+          30
+        ]
+      },
+      "best": {
+        "learning_rate": 0.03,
+        "min_child_samples": 30,
+        "n_estimators": 600,
+        "num_leaves": 15
+      },
+      "n_candidates": 24
+    },
+    "bayesian": {
+      "best": {
+        "n_estimators": 922,
+        "learning_rate": 0.05700042878874667,
+        "num_leaves": 13,
+        "min_child_samples": 41,
+        "subsample": 0.8410987834117182,
+        "subsample_freq": 1,
+        "colsample_bytree": 0.5009153617648229,
+        "reg_lambda": 0.17149581668128844,
+        "reg_alpha": 0.0002898115581696978
+      },
+      "n_trials": 40
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 30302.2,
+        "val_rmse": 31411.4,
+        "test_rmse": 22650.61,
+        "test_mae": 9354.46
+      },
+      "grid": {
+        "cv_rmse": 30030.74,
+        "val_rmse": 32319.28,
+        "test_rmse": 22407.34,
+        "test_mae": 9363.27
+      },
+      "bayesian": {
+        "cv_rmse": 29009.18,
+        "val_rmse": 31321.73,
+        "test_rmse": 22403.98,
+        "test_mae": 9368.21
+      }
+    }
+  },
+  "catboost_model": {
+    "model": "CatBoost",
+    "kept": "default",
+    "source": "library defaults",
+    "params": {},
+    "search_cv_rmse_seed42": {
+      "grid": 27256.03,
+      "bayesian": 27058.03
+    },
+    "grid": {
+      "space": {
+        "iterations": [
+          500,
+          1000
+        ],
+        "learning_rate": [
+          0.03,
+          0.1
+        ],
+        "depth": [
+          4,
+          6,
+          8
+        ]
+      },
+      "best": {
+        "depth": 4,
+        "iterations": 1000,
+        "learning_rate": 0.03
+      },
+      "n_candidates": 12
+    },
+    "bayesian": {
+      "best": {
+        "iterations": 693,
+        "learning_rate": 0.07489723835527984,
+        "depth": 3,
+        "l2_leaf_reg": 4.359360321865315,
+        "random_strength": 0.10824376249086654,
+        "bagging_temperature": 0.19807936126413278
+      },
+      "n_trials": 25
+    },
+    "seeds_42_43_44_mean": {
+      "default": {
+        "cv_rmse": 29940.35,
+        "val_rmse": 32645.12,
+        "test_rmse": 22537.95,
+        "test_mae": 9255.52
+      },
+      "grid": {
+        "cv_rmse": 29797.31,
+        "val_rmse": 31849.61,
+        "test_rmse": 22656.82,
+        "test_mae": 9312.05
+      },
+      "bayesian": {
+        "cv_rmse": 29862.6,
+        "val_rmse": 31579.62,
+        "test_rmse": 23045.55,
+        "test_mae": 9442.68
+      }
+    }
   }
 }
