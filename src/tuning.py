@@ -1,213 +1,307 @@
-"""Hyperparameter tuning — HOW the final hyperparameters in src/models.py (FINAL_PARAMS) were found.
+"""Hyperparameter tuning: a coarse grid search, then a Bayesian (Optuna TPE) search centred on the best grid point.
 
-Not part of the main run: `python main.py` always uses FINAL_PARAMS. Re-running a search writes only to
-reports/tuning/ or reports/deep_tuning/; adopting a new result means editing FINAL_PARAMS by hand.
-
-Every search is CV on the TRAIN split only (5-fold, same folds as the
-leaderboard), with scaling + log1p target transform re-fit inside each fold. The validation and test
-sets are never seen during a search. Scoring is RMSE in rupees.
-
-- Ridge / Lasso / Elastic Net: exhaustive GridSearchCV over alpha (+ l1_ratio).
-- Trees / boosting: RandomizedSearchCV over regularisation + capacity parameters.
-- Mean/median baselines and plain Linear Regression have no hyperparameters to tune.
+Both searches minimise 5-fold CV RMSE on the seed-42 TRAINING split only. The whole pipeline, preprocessing
+included, is re-fit inside every fold, so validation and test rows are never seen. The best grid point is
+the first Bayesian trial, so the Bayesian result is never worse than the grid result on CV.
+`compare_on_seeds` then scores library defaults, grid-best and Bayesian-best on every seed.
 """
-import json, time
+
+import time
+
 import numpy as np
 import pandas as pd
-from scipy.stats import randint, uniform, loguniform
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, KFold, RepeatedKFold, cross_val_score
-from sklearn.metrics import make_scorer, mean_squared_error
+from sklearn.model_selection import GridSearchCV, KFold, cross_val_score
 
 from . import config
-from .models import make_model, REGISTRY
+from .evaluation import evaluate, with_preprocessor
+from .models import make_model
+from .preprocessing import prepare_data
 
-RS = config.RANDOM_STATE
-_RMSE = make_scorer(lambda a, p: np.sqrt(mean_squared_error(a, p)), greater_is_better=False)
-TUNED_PARAMS_FILE = config.REPORTS / "tuning" / "tuned_best_params.json"
-UNTUNABLE = ("baseline_mean", "baseline_median", "linear_regression")
+TUNABLE = [
+    "ridge_regression",
+    "lasso_regression",
+    "elastic_net",
+    "decision_tree",
+    "random_forest",
+    "gradient_boosting",
+    "xgboost_model",
+    "lightgbm_model",
+    "catboost_model",
+]
+# Linear Regression and the two baselines have no hyperparameters to tune.
+
+GRIDS = {
+    "ridge_regression": {"alpha": list(np.logspace(-3, 3, 13))},
+    "lasso_regression": {"alpha": list(np.logspace(-5, 0, 11))},
+    "elastic_net": {"alpha": list(np.logspace(-5, 0, 11)), "l1_ratio": [0.1, 0.3, 0.5, 0.7, 0.9, 1.0]},
+    "decision_tree": {"max_depth": [4, 6, 8, 10, None], "min_samples_leaf": [1, 5, 10, 20], "max_features": [0.5, 1.0]},
+    "random_forest": {
+        "n_estimators": [300],
+        "max_depth": [None, 15],
+        "max_features": [0.33, 0.6, 1.0],
+        "min_samples_leaf": [1, 3, 5],
+    },
+    "gradient_boosting": {
+        "n_estimators": [300, 600],
+        "learning_rate": [0.03, 0.1],
+        "max_depth": [2, 3, 4],
+        "subsample": [0.7, 1.0],
+    },
+    "xgboost_model": {
+        "n_estimators": [300, 600],
+        "learning_rate": [0.03, 0.1],
+        "max_depth": [3, 5, 7],
+        "subsample": [0.7, 1.0],
+        "colsample_bytree": [0.7, 1.0],
+    },
+    "lightgbm_model": {
+        "n_estimators": [300, 600],
+        "learning_rate": [0.03, 0.1],
+        "num_leaves": [15, 31, 63],
+        "min_child_samples": [10, 30],
+    },
+    "catboost_model": {"iterations": [500, 1000], "learning_rate": [0.03, 0.1], "depth": [4, 6, 8]},
+}
+N_TRIALS = {
+    "ridge_regression": 30,
+    "lasso_regression": 30,
+    "elastic_net": 30,
+    "decision_tree": 40,
+    "random_forest": 25,
+    "gradient_boosting": 30,
+    "xgboost_model": 40,
+    "lightgbm_model": 40,
+    "catboost_model": 25,
+}
+_SINGLE_THREAD = {"ridge_regression", "lasso_regression", "elastic_net", "decision_tree", "gradient_boosting"}
 
 
-def _cv():
-    return KFold(n_splits=config.CV_FOLDS, shuffle=True, random_state=RS)
+def _prefix(key):
+    return "regressor__model__"  # every tunable model is TransformedTargetRegressor(Pipeline(..., model))
 
 
-def _param(grid):
-    """Prefix parameter names for the estimator inside TransformedTargetRegressor -> Pipeline."""
-    return {f"regressor__model__{k}": v for k, v in grid.items()}
+def _cv(seed):
+    return KFold(n_splits=config.CV_FOLDS, shuffle=True, random_state=seed)
 
 
-# ---- exhaustive grids for the regularised linear models ----
-REG_GRIDS = {
-    "ridge_regression": {"alpha": np.logspace(-3, 3, 31)},
-    "lasso_regression": {"alpha": np.logspace(-5, 0, 31)},
-    "elastic_net":      {"alpha": np.logspace(-5, 0, 21), "l1_ratio": [0.05, 0.1, 0.3, 0.5, 0.7, 0.9, 0.95, 1.0]},
+def cv_rmse(key, params, data):
+    """5-fold CV RMSE on the training split, preprocessing re-fit inside every fold."""
+    seed = data["seed"]
+    model = with_preprocessor(make_model(key, seed=seed, params=params), seed)
+    s = cross_val_score(
+        model,
+        data["X_train_raw"],
+        data["y_train"],
+        cv=_cv(seed),
+        scoring="neg_root_mean_squared_error",
+        n_jobs=-1 if key in _SINGLE_THREAD else 1,
+    )
+    return float(-s.mean())
+
+
+def grid_search(key, data):
+    """Exhaustive grid search (5-fold CV RMSE). Returns (best params, best CV RMSE, number of candidates)."""
+    seed = data["seed"]
+    est = with_preprocessor(make_model(key, seed=seed, params={}), seed)
+    grid = {_prefix(key) + k: v for k, v in GRIDS[key].items()}
+    gs = GridSearchCV(
+        est,
+        grid,
+        scoring="neg_root_mean_squared_error",
+        cv=_cv(seed),
+        refit=False,
+        n_jobs=-1 if key in _SINGLE_THREAD else 1,
+    )
+    gs.fit(data["X_train_raw"], data["y_train"])
+    best = {k[len(_prefix(key)) :]: _py(v) for k, v in gs.best_params_.items()}
+    return best, float(-gs.best_score_), len(gs.cv_results_["params"])
+
+
+def _py(v):
+    return v.item() if hasattr(v, "item") else v
+
+
+# ---- Bayesian search spaces, centred on the best grid point g ----
+def _log(t, name, c, f, lo=None, hi=None):
+    a, b = c / f, c * f
+    return t.suggest_float(name, max(a, lo) if lo else a, min(b, hi) if hi else b, log=True)
+
+
+def _int(t, name, lo, hi):
+    lo, hi = int(lo), int(max(hi, lo))
+    return t.suggest_int(name, lo, hi)
+
+
+def _flt(t, name, lo, hi):
+    return t.suggest_float(name, float(lo), float(max(hi, lo)))
+
+
+def _space(key, t, g):
+    if key in ("ridge_regression", "lasso_regression"):
+        return {"alpha": _log(t, "alpha", g["alpha"], 10)}
+    if key == "elastic_net":
+        return {
+            "alpha": _log(t, "alpha", g["alpha"], 10),
+            "l1_ratio": _flt(t, "l1_ratio", max(0.05, g["l1_ratio"] - 0.2), min(1.0, g["l1_ratio"] + 0.2)),
+        }
+    if key == "decision_tree":
+        d = g["max_depth"]
+        return {
+            "max_depth": _int(t, "max_depth", 12, 30) if d is None else _int(t, "max_depth", max(2, d - 2), d + 2),
+            "min_samples_leaf": _int(
+                t, "min_samples_leaf", max(1, g["min_samples_leaf"] // 2), 2 * g["min_samples_leaf"] + 2
+            ),
+            "min_samples_split": _int(t, "min_samples_split", 2, 30),
+            "max_features": _flt(t, "max_features", 0.3, 1.0),
+        }
+    if key == "random_forest":
+        d = g["max_depth"]
+        return {
+            "n_estimators": _int(t, "n_estimators", 200, 600),
+            "max_depth": _int(t, "max_depth", 15, 50) if d is None else _int(t, "max_depth", max(5, d - 5), d + 10),
+            "max_features": _flt(
+                t, "max_features", max(0.2, g["max_features"] - 0.25), min(1.0, g["max_features"] + 0.25)
+            ),
+            "min_samples_leaf": _int(
+                t, "min_samples_leaf", max(1, g["min_samples_leaf"] - 2), g["min_samples_leaf"] + 3
+            ),
+            "min_samples_split": _int(t, "min_samples_split", 2, 12),
+            "max_samples": _flt(t, "max_samples", 0.6, 1.0),
+        }
+    if key == "gradient_boosting":
+        return {
+            "n_estimators": _int(t, "n_estimators", max(100, g["n_estimators"] // 2), g["n_estimators"] * 2),
+            "learning_rate": _log(t, "learning_rate", g["learning_rate"], 3),
+            "max_depth": _int(t, "max_depth", max(2, g["max_depth"] - 1), g["max_depth"] + 1),
+            "subsample": _flt(t, "subsample", max(0.5, g["subsample"] - 0.2), min(1.0, g["subsample"] + 0.2)),
+            "min_samples_leaf": _int(t, "min_samples_leaf", 1, 20),
+            "max_features": _flt(t, "max_features", 0.4, 1.0),
+            "loss": t.suggest_categorical("loss", ["squared_error", "huber"]),
+        }
+    if key == "xgboost_model":
+        return {
+            "n_estimators": _int(t, "n_estimators", g["n_estimators"] // 2, int(g["n_estimators"] * 2.5)),
+            "learning_rate": _log(t, "learning_rate", g["learning_rate"], 3),
+            "max_depth": _int(t, "max_depth", max(2, g["max_depth"] - 1), g["max_depth"] + 1),
+            "subsample": _flt(t, "subsample", max(0.5, g["subsample"] - 0.2), min(1.0, g["subsample"] + 0.2)),
+            "colsample_bytree": _flt(
+                t, "colsample_bytree", max(0.4, g["colsample_bytree"] - 0.2), min(1.0, g["colsample_bytree"] + 0.2)
+            ),
+            "min_child_weight": t.suggest_float("min_child_weight", 0.5, 10, log=True),
+            "reg_lambda": t.suggest_float("reg_lambda", 1e-3, 10, log=True),
+            "reg_alpha": t.suggest_float("reg_alpha", 1e-4, 10, log=True),
+        }
+    if key == "lightgbm_model":
+        return {
+            "n_estimators": _int(t, "n_estimators", g["n_estimators"] // 2, int(g["n_estimators"] * 2.5)),
+            "learning_rate": _log(t, "learning_rate", g["learning_rate"], 3),
+            "num_leaves": _int(t, "num_leaves", max(7, g["num_leaves"] // 2), g["num_leaves"] * 2),
+            "min_child_samples": _int(
+                t, "min_child_samples", max(5, g["min_child_samples"] // 2), g["min_child_samples"] * 2
+            ),
+            "subsample": _flt(t, "subsample", 0.5, 1.0),
+            "subsample_freq": 1,
+            "colsample_bytree": _flt(t, "colsample_bytree", 0.5, 1.0),
+            "reg_lambda": t.suggest_float("reg_lambda", 1e-3, 10, log=True),
+            "reg_alpha": t.suggest_float("reg_alpha", 1e-4, 10, log=True),
+        }
+    if key == "catboost_model":
+        return {
+            "iterations": _int(t, "iterations", g["iterations"] // 2, g["iterations"] * 2),
+            "learning_rate": _log(t, "learning_rate", g["learning_rate"], 3),
+            "depth": _int(t, "depth", max(3, g["depth"] - 1), min(10, g["depth"] + 1)),
+            "l2_leaf_reg": t.suggest_float("l2_leaf_reg", 1, 10, log=True),
+            "random_strength": t.suggest_float("random_strength", 0.1, 5, log=True),
+            "bagging_temperature": t.suggest_float("bagging_temperature", 0.0, 1.0),
+        }
+    raise KeyError(key)
+
+
+# Library-default values of the parameters the Bayesian spaces add on top of the grid, so the first trial is
+# exactly the best grid point (0 is mapped to the lower end of a log range).
+_EXTRA_DEFAULTS = {
+    "decision_tree": {"min_samples_split": 2},
+    "random_forest": {"min_samples_split": 2, "max_samples": 1.0},
+    "gradient_boosting": {"min_samples_leaf": 1, "max_features": 1.0, "loss": "squared_error"},
+    "xgboost_model": {"min_child_weight": 1.0, "reg_lambda": 1.0, "reg_alpha": 1e-4},
+    "lightgbm_model": {"subsample": 1.0, "colsample_bytree": 1.0, "reg_lambda": 1e-3, "reg_alpha": 1e-4},
+    "catboost_model": {"l2_leaf_reg": 3.0, "random_strength": 1.0, "bagging_temperature": 1.0},
 }
 
-# ---- randomized spaces (capacity + regularisation) ----
-RANDOM_SPACES = {
-    "decision_tree": {"max_depth": [None, 4, 6, 8, 10, 12, 15, 20], "min_samples_split": randint(2, 40),
-                      "min_samples_leaf": randint(1, 30), "max_features": [None, "sqrt", 0.5, 0.7],
-                      "ccp_alpha": [0.0, 1e-5, 1e-4, 5e-4, 1e-3, 5e-3]},
-    "random_forest": {"n_estimators": randint(200, 700), "max_depth": [None, 10, 15, 20, 30],
-                      "min_samples_split": randint(2, 15), "min_samples_leaf": randint(1, 8),
-                      "max_features": [0.3, 0.5, 0.7, 1.0, "sqrt"], "max_samples": [None, 0.6, 0.8]},
-    "gradient_boosting": {"loss": ["squared_error", "huber"],
-                          "n_estimators": randint(200, 900), "learning_rate": loguniform(0.01, 0.2),
-                          "max_depth": randint(2, 7), "min_samples_leaf": randint(1, 20),
-                          "subsample": uniform(0.6, 0.4), "max_features": [None, "sqrt", 0.5, 0.8]},
-    "xgboost_model": {"n_estimators": randint(200, 1200), "learning_rate": loguniform(0.01, 0.2),
-                      "max_depth": randint(2, 9), "min_child_weight": loguniform(0.5, 20),
-                      "subsample": uniform(0.6, 0.4), "colsample_bytree": uniform(0.5, 0.5),
-                      "reg_alpha": loguniform(1e-4, 1), "reg_lambda": loguniform(1e-2, 10),
-                      "gamma": [0.0, 0.001, 0.01, 0.05]},
-    "lightgbm_model": {"n_estimators": randint(200, 1200), "learning_rate": loguniform(0.01, 0.2),
-                       "num_leaves": randint(8, 80), "max_depth": [-1, 4, 6, 8, 10],
-                       "min_child_samples": randint(5, 60), "subsample": uniform(0.6, 0.4),
-                       "subsample_freq": [1], "colsample_bytree": uniform(0.5, 0.5),
-                       "reg_alpha": loguniform(1e-4, 1), "reg_lambda": loguniform(1e-3, 10)},
-    "catboost_model": {"iterations": randint(300, 1200), "learning_rate": loguniform(0.02, 0.2),
-                       "depth": randint(4, 9), "l2_leaf_reg": loguniform(1, 20),
-                       "random_strength": loguniform(0.1, 5), "bagging_temperature": uniform(0, 1)},
-}
 
-# search budget per model (fits = n_iter x 5 folds)
-N_ITER = {"decision_tree": 100, "random_forest": 40, "gradient_boosting": 60,
-          "xgboost_model": 100, "lightgbm_model": 100, "catboost_model": 40}
-
-# single-thread the estimator while the search parallelises over candidates (avoids oversubscription)
-_THREAD_PARAM = {"random_forest": "n_jobs", "xgboost_model": "n_jobs", "lightgbm_model": "n_jobs",
-                 "catboost_model": "thread_count"}
+def _grid_as_trial(key, g):
+    """The grid best expressed in the Bayesian space (first trial)."""
+    t = {**_EXTRA_DEFAULTS.get(key, {}), **g}
+    if key == "decision_tree" and g.get("max_depth") is None:
+        t["max_depth"] = 30
+    if key == "random_forest" and g.get("max_depth") is None:
+        t["max_depth"] = 50
+    return t
 
 
-def tune(key, data, n_iter=None):
-    """Run the CV search for one model on the training split. Returns the fitted search object."""
-    model = make_model(key, data["target_transform"], use_final=False)   # search from library defaults
-    if key in _THREAD_PARAM:
-        model.set_params(**{f"regressor__model__{_THREAD_PARAM[key]}": 1})
-    if key in REG_GRIDS:
-        search = GridSearchCV(model, _param(REG_GRIDS[key]), scoring=_RMSE, cv=_cv(), n_jobs=-1)
-    elif key in RANDOM_SPACES:
-        search = RandomizedSearchCV(model, _param(RANDOM_SPACES[key]), n_iter=n_iter or N_ITER[key],
-                                    scoring=_RMSE, cv=_cv(), random_state=RS, n_jobs=-1)
-    else:
-        raise ValueError(f"{key} has no hyperparameters to tune")
-    search.fit(data["X_train"], data["y_train"])
-    return search
-
-
-def best_params(search):
-    """Strip the pipeline prefix and convert numpy scalars to plain Python for JSON."""
-    out = {}
-    for k, v in search.best_params_.items():
-        v = v.item() if hasattr(v, "item") else v
-        out[k.split("__")[-1]] = v
-    return out
-
-
-def best_cv_rmse(search):
-    return -search.best_score_
-
-
-def save_tuned_params(params_by_key):
-    TUNED_PARAMS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    existing = load_tuned_params()
-    existing.update(params_by_key)
-    TUNED_PARAMS_FILE.write_text(json.dumps(existing, indent=2, default=str))
-
-
-def load_tuned_params():
-    return json.loads(TUNED_PARAMS_FILE.read_text()) if TUNED_PARAMS_FILE.exists() else {}
-
-
-def build_tuned_model(key, target_transform, params=None):
-    """Full-thread pipeline for `key` with tuned hyperparameters (from file if params is None)."""
-    params = params if params is not None else load_tuned_params().get(key, {})
-    est = REGISTRY[key][1]()
-    if params:
-        est.set_params(**params)
-    return make_model(key, target_transform, estimator=est)
-
-
-def repeated_cv_rmse(model, data, n_splits=5, n_repeats=3):
-    """Repeated K-fold RMSE on train — a more stable ranking signal than one 5-fold run."""
-    cv = RepeatedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=RS)
-    s = -cross_val_score(model, data["X_train"], data["y_train"], cv=cv, scoring=_RMSE, n_jobs=-1)
-    return float(s.mean()), float(s.std())
-
-
-# --- backward-compatible helpers used by notebooks/regularization.ipynb ---
-def regularization_search(key, data):
-    return tune(key, data)
-
-
-def randomized_search(key, data, n_iter=15):
-    return tune(key, data, n_iter=n_iter)
-
-
-# ----------------------------- deep tuning (Optuna / TPE) -----------------------------
-def _xgb_space(trial):
-    p = {"n_estimators": trial.suggest_int("n_estimators", 200, 2000, step=50),
-         "learning_rate": trial.suggest_float("learning_rate", 0.005, 0.3, log=True),
-         "max_depth": trial.suggest_int("max_depth", 2, 10),
-         "min_child_weight": trial.suggest_float("min_child_weight", 0.5, 50, log=True),
-         "subsample": trial.suggest_float("subsample", 0.5, 1.0),
-         "colsample_bytree": trial.suggest_float("colsample_bytree", 0.4, 1.0),
-         "colsample_bynode": trial.suggest_float("colsample_bynode", 0.5, 1.0),
-         "gamma": trial.suggest_float("gamma", 1e-8, 0.5, log=True),
-         "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 5.0, log=True),
-         "reg_lambda": trial.suggest_float("reg_lambda", 1e-3, 50.0, log=True),
-         "objective": trial.suggest_categorical("objective", ["reg:squarederror", "reg:pseudohubererror"])}
-    if p["objective"] == "reg:pseudohubererror":
-        p["huber_slope"] = trial.suggest_float("huber_slope", 0.05, 2.0, log=True)
-    return p
-
-
-def _rf_space(trial):
-    p = {"n_estimators": trial.suggest_int("n_estimators", 300, 1500, step=100),
-         "max_features": trial.suggest_float("max_features", 0.2, 1.0),
-         "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
-         "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
-         "max_samples": trial.suggest_float("max_samples", 0.5, 1.0)}
-    p["max_depth"] = trial.suggest_int("max_depth", 8, 40) if trial.suggest_categorical("depth_limited", [False, True]) else None
-    return p
-
-
-OPTUNA_SPACES = {"xgboost_model": _xgb_space, "random_forest": _rf_space}
-
-
-def optuna_search(key, data, n_trials, cv_repeats=1, seed=RS, log_every=10):
-    """Bayesian (TPE) search on the TRAIN split. Objective = mean RMSE over 5-fold CV repeated
-    `cv_repeats` times. Estimator params are stored on each trial as user_attrs['est_params']."""
+def bayes_search(key, data, grid_best, n_trials=None, seed=config.RANDOM_STATE):
+    """Optuna TPE search around the grid best (first trial = grid best). Returns (best params, best CV RMSE, trials)."""
     import optuna
+
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    cv = (RepeatedKFold(n_splits=config.CV_FOLDS, n_repeats=cv_repeats, random_state=RS)
-          if cv_repeats > 1 else _cv())
-    space = OPTUNA_SPACES[key]
+    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=seed))
+    study.enqueue_trial(_grid_as_trial(key, grid_best), skip_if_exists=True)
 
-    def objective(trial):
-        p = space(trial)
-        trial.set_user_attr("est_params", p)
-        model = build_tuned_model(key, data["target_transform"], p)
-        s = -cross_val_score(model, data["X_train"], data["y_train"], cv=cv, scoring=_RMSE, n_jobs=1)
-        trial.set_user_attr("cv_std", float(s.std()))
-        return float(s.mean())
+    def objective(t):
+        return cv_rmse(key, _space(key, t, grid_best), data)
 
-    def report(study, trial):
-        if (trial.number + 1) % log_every == 0:
-            print(f"  [{key}] trial {trial.number + 1}/{n_trials}: best CV RMSE Rs{study.best_value:,.0f}", flush=True)
-
-    study = optuna.create_study(direction="minimize", study_name=key,
-                                sampler=optuna.samplers.TPESampler(seed=seed, multivariate=True))
-    study.optimize(objective, n_trials=n_trials, callbacks=[report])
-    return study
+    study.optimize(objective, n_trials=n_trials or N_TRIALS[key])
+    best = _space(key, optuna.trial.FixedTrial(study.best_params), grid_best)
+    return {k: _py(v) for k, v in best.items()}, float(study.best_value), len(study.trials)
 
 
-def confirm_cv(models, data, n_repeats=3, seed=7):
-    """Score several {label: model} on the SAME fresh repeated 5-fold split (different seed from the
-    searches), so the comparison is not biased toward whichever config the search happened to favour."""
-    cv = RepeatedKFold(n_splits=config.CV_FOLDS, n_repeats=n_repeats, random_state=seed)
-    out = {}
-    for label, m in models.items():
-        s = -cross_val_score(m, data["X_train"], data["y_train"], cv=cv, scoring=_RMSE, n_jobs=1)
-        out[label] = (float(s.mean()), float(s.std()))
+def tune(key, data=None, verbose=True):
+    """Grid search, then Bayesian search around the grid best, on the seed-42 training split."""
+    data = data or prepare_data(seed=config.RANDOM_STATE)
+    t0 = time.time()
+    g, g_cv, n_g = grid_search(key, data)
+    t1 = time.time()
+    b, b_cv, n_b = bayes_search(key, data, g)
+    out = {
+        "grid": {"params": g, "cv_rmse": g_cv, "n_candidates": n_g, "time_s": round(t1 - t0, 1)},
+        "bayes": {"params": b, "cv_rmse": b_cv, "n_trials": n_b, "time_s": round(time.time() - t1, 1)},
+    }
+    if verbose:
+        print(
+            f"{key}: grid CV {g_cv:,.2f} ({n_g} candidates, {t1 - t0:.0f}s) -> "
+            f"Bayesian CV {b_cv:,.2f} ({n_b} trials, {time.time() - t1:.0f}s)",
+            flush=True,
+        )
     return out
+
+
+def compare_on_seeds(key, candidates, seeds=config.SEEDS, clean=None):
+    """Score each {label: params} on every seed (fit on train, CV on train, val, test).
+    Returns one row per candidate with mean scores over the seeds."""
+    datas = {s: prepare_data(seed=s, clean=clean) for s in seeds}
+    rows = []
+    for label, params in candidates.items():
+        per = []
+        for s in seeds:
+            sc, _ = evaluate(make_model(key, seed=s, params=params), datas[s])
+            per.append(
+                {
+                    "cv": sc["cv"]["RMSE"],
+                    "val": sc["val"]["RMSE"],
+                    "test": sc["test"]["RMSE"],
+                    "test_mae": sc["test"]["MAE"],
+                }
+            )
+        per = pd.DataFrame(per)
+        rows.append(
+            {
+                "model": key,
+                "candidate": label,
+                "cv_rmse": per.cv.mean(),
+                "val_rmse": per.val.mean(),
+                "test_rmse": per.test.mean(),
+                "test_rmse_std": per.test.std(ddof=1),
+                "test_mae": per.test_mae.mean(),
+            }
+        )
+    return pd.DataFrame(rows)
