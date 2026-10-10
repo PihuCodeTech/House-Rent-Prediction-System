@@ -15,6 +15,10 @@ xgboost>=3.0
 lightgbm>=4.0
 catboost>=1.2            # CPU only on macOS (no Apple-GPU support)
 
+# The app (app/streamlit_app.py)
+streamlit>=1.50      # selectbox with typed-in options, width="stretch"
+altair>=5.0
+
 # Hyperparameter tuning notebook (Bayesian search)
 optuna>=4.0
 
