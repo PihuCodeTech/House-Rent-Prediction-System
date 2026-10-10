@@ -167,6 +167,8 @@ def prepare_data(seed=config.RANDOM_STATE, clean=None):
         "y_val": y_val,
         "y_test": y_test,
         "X_train_raw": X_tr_raw,
+        "X_val_raw": X_val_raw,  # raw rows, for rule-based models (the locality × size baseline)
+        "X_test_raw": X_te_raw,
         "feature_names": feature_names,
         "preprocessor": pre,
         "fingerprint": compute_fingerprint(X_train, X_val, X_test, y_train, y_val, y_test, feature_names),
