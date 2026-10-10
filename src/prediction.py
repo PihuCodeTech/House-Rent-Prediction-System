@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
-from .data_cleaning import FLOOR_LEVEL_MAP, rule_parse_floor, rule_strip_text
+from .data_cleaning import rule_parse_floor, rule_strip_text
 from .feature_engineering import add_stateless_features
 
 RAW_COLUMNS = [
@@ -44,6 +44,7 @@ RAW_COLUMNS = [
 CHOICE_FIELDS = ["City", "Furnishing Status", "Area Type", "Tenant Preferred", "Point of Contact"]
 FINAL_MODEL, FINAL_META, INPUT_SCHEMA = "final_model.joblib", "final_model_meta.json", "input_schema.json"
 _PLACEHOLDER_DATE = "2022-06-01"  # the posting date is not a model feature; any valid date works
+_PLACEHOLDER_FLOOR = "1 out of 1"  # likewise the floor (dropped from the features)
 
 
 # ----------------------------- raw-row prediction -----------------------------
@@ -54,6 +55,8 @@ def predict_raw(model, preprocessor, feature_names, raw_df):
     if missing:
         raise ValueError(f"raw rows are missing columns: {missing}")
     clean = add_stateless_features(rule_parse_floor(rule_strip_text(raw_df.copy())))
+    if preprocessor is None:  # rule-based model (locality × size baseline): reads the raw columns itself
+        return model.predict(clean)
     Z = preprocessor.transform(clean.drop(columns=[config.TARGET], errors="ignore"))
     X = pd.DataFrame(np.asarray(Z, dtype="float64"), columns=feature_names, index=clean.index)
     return model.predict(X)
@@ -66,9 +69,12 @@ class SeedAveragedModel:
     training split together with that seed's fitted preprocessor.
     """
 
-    def __init__(self, key, name, members, params=None, source=None, results=None):
+    error_profile = None  # class default, so models saved before the error profile existed still load cleanly
+
+    def __init__(self, key, name, members, params=None, source=None, results=None, error_profile=None):
         self.key, self.name, self.members = key, name, list(members)
         self.params, self.source, self.results = dict(params or {}), source, results
+        self.error_profile = error_profile  # see build_error_profile
         self.seeds = [m["seed"] for m in self.members]
 
     def predict_each(self, raw_df):
@@ -85,6 +91,60 @@ class SeedAveragedModel:
 
     def __repr__(self):
         return f"SeedAveragedModel({self.name}, seeds={self.seeds})"
+
+
+# ----------------------------- how far off is the model? -----------------------------
+def build_error_profile(tests, n_bins=5, coverage=0.8):
+    """Typical error by price level, measured on the test splits: `tests` is a list of (actual, predicted) arrays,
+    one per seed, every prediction made by the seed's member that never trained on those rows. Predictions are
+    grouped into `n_bins` equal-size price bands; for each band the central `coverage` share of actual/predicted
+    ratios gives the "likely range" multipliers."""
+    actual = np.concatenate([np.asarray(a, dtype="float64") for a, _ in tests])
+    predicted = np.concatenate([np.asarray(p, dtype="float64") for _, p in tests])
+    ratio = actual / predicted
+    edges = np.quantile(predicted, np.linspace(0, 1, n_bins + 1))[1:-1]
+    band = np.digitize(predicted, edges)
+    tail = (1 - coverage) / 2
+
+    def bounds(r):  # bands with too few predictions (e.g. a constant baseline) use all predictions instead
+        r = r if len(r) >= 30 else ratio
+        return float(np.quantile(r, tail)), float(np.quantile(r, 1 - tail))
+
+    low, high = zip(*(bounds(ratio[band == b]) for b in range(n_bins)), strict=True)
+    low, high = list(low), list(high)
+    return {
+        "edges": edges.tolist(),
+        "ratio_low": low,
+        "ratio_high": high,
+        "coverage": coverage,
+        "n_test_predictions": int(len(ratio)),
+    }
+
+
+def likely_range(rent, profile):
+    """(low, high) for a predicted rent from an error profile; None if the model has no profile."""
+    if not profile:
+        return None
+    band = int(np.digitize([rent], profile["edges"])[0])
+    return rent * profile["ratio_low"][band], rent * profile["ratio_high"][band]
+
+
+def range_band(rent, profile):
+    """The price band whose test errors set the likely range for `rent`: {"low", "high", "n", "ratio_low",
+    "ratio_high"} (low/high are predicted-rent bounds, None when open-ended; n is about how many test predictions
+    fell in the band). None if the model has no profile."""
+    if not profile:
+        return None
+    edges = profile["edges"]
+    band = int(np.digitize([rent], edges)[0])
+    n_bands = len(edges) + 1
+    return {
+        "low": float(edges[band - 1]) if band > 0 else None,
+        "high": float(edges[band]) if band < len(edges) else None,
+        "n": int(round(profile.get("n_test_predictions", 0) / n_bands)),
+        "ratio_low": float(profile["ratio_low"][band]),
+        "ratio_high": float(profile["ratio_high"][band]),
+    }
 
 
 # ----------------------------- save / load -----------------------------
@@ -161,7 +221,8 @@ def build_input_schema(raw_df):
         .reset_index()
         .sort_values(["City", "n", "name"], ascending=[True, False, True])
     )
-    localities = {city: g["name"].tolist() for city, g in display.groupby("City")}
+    display["name"] = display["name"].map(lambda n: n.title() if n.islower() else n)  # 'whitefield' -> 'Whitefield'
+    localities = {city: list(dict.fromkeys(g["name"])) for city, g in display.groupby("City")}
 
     def rng(series, integer=False):
         s = series.dropna()
@@ -169,6 +230,22 @@ def build_input_schema(raw_df):
         return {"min": cast(s.min()), "max": cast(s.max()), "median": cast(s.median()), "integer": integer}
 
     choices = {f: clean[f].value_counts().index.tolist() for f in CHOICE_FIELDS}  # most common first
+
+    priced = clean.assign(rps=clean["Rent"] / clean["Size"])
+    by_city = priced.groupby("City").agg(
+        median_rent=("Rent", "median"), median_rps=("rps", "median"), n=("Rent", "size")
+    )
+    by_locality = priced.groupby(["City", "Area Locality"]).agg(
+        median_rent=("Rent", "median"), median_rps=("rps", "median"), n=("Rent", "size")
+    )
+    by_locality = by_locality[by_locality["n"] >= 3]  # medians from fewer listings are too noisy to show
+    market = {
+        "cities": {c: {k: float(v) for k, v in r.items()} for c, r in by_city.iterrows()},
+        "localities": {
+            city: {loc: {k: float(v) for k, v in r.items()} for (_, loc), r in g.iterrows()}
+            for city, g in by_locality.groupby(level=0)
+        },
+    }
     return {
         "version": 1,
         "choices": choices,
@@ -177,11 +254,9 @@ def build_input_schema(raw_df):
             "BHK": rng(clean["BHK"], True),
             "Bathroom": rng(clean["Bathroom"], True),
             "Size": rng(clean["Size"]),
-            "current_floor": rng(clean["current_floor"], True),
-            "total_floors": rng(clean["total_floors"], True),
         },
         "defaults": {f: choices[f][0] for f in CHOICE_FIELDS},
-        "floor_levels": {str(v): k for k, v in FLOOR_LEVEL_MAP.items()},
+        "market": market,
         "rows_used": int(len(clean)),
     }
 
@@ -243,17 +318,13 @@ def _choice(value, name, options, default, errors, warnings):
     return match
 
 
-def floor_label(level):
-    """0 -> 'Ground', -1 -> 'Upper Basement', -2 -> 'Lower Basement', 3 -> '3'."""
-    return {v: k for k, v in FLOOR_LEVEL_MAP.items()}.get(level, str(level))
-
-
 def validate_listing(listing, schema):
     """Check and normalise one listing (a dict). Returns (one-row DataFrame in the raw schema, warnings).
     Raises InvalidListing listing every problem.
 
-    Fields: City, BHK, Size (sq ft), Bathroom (required); Area Locality, current_floor, total_floors,
-    Furnishing Status, Area Type, Tenant Preferred, Point of Contact (optional — sensible defaults with a warning).
+    Fields: City, BHK, Size (sq ft), Bathroom (required); Area Locality, Furnishing Status, Area Type,
+    Tenant Preferred, Point of Contact (optional — sensible defaults with a warning). Floor fields are ignored: the
+    model does not use them.
     Case and surrounding spaces of choices are ignored; numbers may be strings such as "1,200".
     """
     if not isinstance(listing, dict):
@@ -273,8 +344,6 @@ def validate_listing(listing, schema):
     bhk = _number(listing.get("BHK"), "BHK", errors, integer=True)
     bath = _number(listing.get("Bathroom"), "Bathroom", errors, integer=True)
     size = _number(listing.get("Size"), "Size", errors)
-    current = _number(listing.get("current_floor"), "current_floor", errors, integer=True, required=False)
-    total = _number(listing.get("total_floors"), "total_floors", errors, integer=True, required=False)
 
     if bhk is not None and bhk < 1:
         errors.append("BHK must be at least 1.")
@@ -282,12 +351,6 @@ def validate_listing(listing, schema):
         errors.append("Bathroom must be at least 1.")
     if size is not None and size <= 0:
         errors.append("Size must be greater than 0 sq ft.")
-    if current is not None and current < min(FLOOR_LEVEL_MAP.values()):
-        errors.append("current_floor cannot be below -2 (Lower Basement).")
-    if total is not None and total < 0:
-        errors.append("total_floors cannot be negative.")
-    if current is not None and total is not None and current > total:
-        errors.append(f"current_floor ({current}) is above the building's total_floors ({total}).")
     if errors:
         raise InvalidListing(errors)
 
@@ -295,8 +358,6 @@ def validate_listing(listing, schema):
         ("BHK", bhk),
         ("Bathroom", bath),
         ("Size", size),
-        ("current_floor", current),
-        ("total_floors", total),
     ):
         r = num[name]
         if value is not None and not (r["min"] <= value <= r["max"]):
@@ -309,13 +370,6 @@ def validate_listing(listing, schema):
         warnings.append(f"{size:,g} sq ft for {bhk} BHK is unusually small; check the size.")
     if bath is not None and bhk is not None and bath > bhk + 2:
         warnings.append(f"{bath} bathrooms for {bhk} BHK is unusual.")
-
-    if current is None:
-        current = int(num["current_floor"]["median"])
-        warnings.append(f"current_floor not given — assumed {floor_label(current)}.")
-    if total is None:
-        total = max(int(num["total_floors"]["median"]), current, 0)
-        warnings.append(f"total_floors not given — assumed {total}.")
 
     locality = str(listing.get("Area Locality") or "").strip()
     known = {_normalise_locality(x) for x in schema["localities"].get(values["City"], [])}
@@ -334,7 +388,7 @@ def validate_listing(listing, schema):
         "Posted On": _PLACEHOLDER_DATE,
         "BHK": bhk,
         "Size": size,
-        "Floor": f"{floor_label(current)} out of {total}",
+        "Floor": _PLACEHOLDER_FLOOR,  # part of the raw schema; not a model input
         "Area Type": values["Area Type"],
         "Area Locality": locality or "unknown",
         "City": values["City"],
@@ -346,11 +400,21 @@ def validate_listing(listing, schema):
     return pd.DataFrame([row], columns=RAW_COLUMNS), warnings
 
 
+def market_context(city, locality, schema):
+    """Median rent and rent per sq ft for the city and (if it has at least 3 listings) the locality."""
+    market = schema.get("market", {})
+    city_stats = market.get("cities", {}).get(city)
+    loc_stats = market.get("localities", {}).get(city, {}).get(_normalise_locality(locality)) if locality else None
+    return {"city": city_stats, "locality": loc_stats}
+
+
 def predict_listing(listing, model=None, schema=None):
-    """Validate and score one listing with the final model. Returns a dict:
-    rent (averaged prediction, Rs/month), per_seed {seed: rent}, low/high (range across seeds), warnings, model.
-    Raises InvalidListing for unusable input; any failure inside the model is re-raised as RuntimeError with a
-    readable message."""
+    """Validate and score one listing with the final model. Returns a dict with:
+    rent (averaged prediction, Rs/month); low / high and coverage (likely range from the model's test-set errors at
+    this price level) and range_band (that price band); seed_low / seed_high and per_seed (spread across the three seed models); rent_per_sqft;
+    market (city / locality medians); warnings; model; listing (the normalised raw row).
+    Raises InvalidListing for unusable input; any failure inside the model becomes a RuntimeError with a readable
+    message."""
     schema = schema or load_input_schema()
     model = model or load_final()
     row, warnings = validate_listing(listing, schema)
@@ -360,12 +424,75 @@ def predict_listing(listing, model=None, schema=None):
         raise RuntimeError(f"The model could not score this listing: {exc}") from exc
     if not np.all(np.isfinite(each)) or np.any(each <= 0):
         raise RuntimeError("The model returned an invalid prediction for this listing.")
+    rent = float(each.mean())
+    profile = getattr(model, "error_profile", None)
+    low, high = likely_range(rent, profile) or (float(each.min()), float(each.max()))
+    r = row.iloc[0]
     return {
-        "rent": float(each.mean()),
+        "rent": rent,
+        "low": float(low),
+        "high": float(high),
+        "coverage": profile["coverage"] if profile else None,
+        "range_band": range_band(rent, profile),
+        "seed_low": float(each.min()),
+        "seed_high": float(each.max()),
         "per_seed": {int(s): float(p) for s, p in zip(model.seeds, each, strict=True)},
-        "low": float(each.min()),
-        "high": float(each.max()),
+        "rent_per_sqft": rent / float(r["Size"]),
+        "market": market_context(r["City"], r["Area Locality"], schema),
         "warnings": warnings,
         "model": model.name,
-        "listing": row.iloc[0].to_dict(),
+        "listing": r.to_dict(),
     }
+
+
+def what_if(listing, model=None, schema=None):
+    """How the estimate changes when one thing about the listing changes. Returns a list of
+    {"group", "label", "rent", "change"} (change = rent minus the listing's own estimate), scored in one batch.
+    Variants that would be invalid (e.g. 0 BHK) are skipped."""
+    schema = schema or load_input_schema()
+    model = model or load_final()
+    base_row, _ = validate_listing(listing, schema)
+    base = base_row.iloc[0]
+    size, bhk, bath = float(base["Size"]), int(base["BHK"]), int(base["Bathroom"])
+    variants = []
+    for option in schema["choices"]["Furnishing Status"]:
+        if option != base["Furnishing Status"]:
+            variants.append(("Furnishing", option, {"Furnishing Status": option}))
+    num = schema.get("numeric", {})
+
+    def within(field, value):  # only suggest changes inside the range the model was trained on
+        r = num.get(field)
+        return r is None or r["min"] <= value <= r["max"]
+
+    for label, value in (
+        (f"{size * 0.8:,.0f} sq ft (20% smaller)", round(size * 0.8)),
+        (f"{size * 1.2:,.0f} sq ft (20% larger)", round(size * 1.2)),
+    ):
+        if within("Size", value):
+            variants.append(("Size", label, {"Size": value}))
+    for value in (bhk + 1, bhk - 1):
+        if value >= 1 and within("BHK", value):
+            variants.append(("Bedrooms", f"{value} BHK, same size", {"BHK": value}))
+    for value in (bath + 1, bath - 1):
+        if value >= 1 and within("Bathroom", value):
+            variants.append(("Bathrooms", f"{value} bathroom{'s' if value > 1 else ''}", {"Bathroom": value}))
+    for option in schema["choices"]["Point of Contact"]:
+        if option != base["Point of Contact"] and option != "Contact Builder":
+            variants.append(
+                ("Listed by", option.replace("Contact ", "listed by ").lower(), {"Point of Contact": option})
+            )
+
+    rows, kept = [base_row], []
+    for group, label, change in variants:
+        try:
+            row, _ = validate_listing({**listing, **change}, schema)
+        except InvalidListing:
+            continue
+        rows.append(row)
+        kept.append((group, label))
+    predictions = model.predict(pd.concat(rows, ignore_index=True))
+    own = float(predictions[0])
+    return [
+        {"group": g, "label": lbl, "rent": float(p), "change": float(p) - own}
+        for (g, lbl), p in zip(kept, predictions[1:], strict=True)
+    ]
