@@ -20,13 +20,15 @@ CLIP_K = 1.5  # lower clip of Size at Tukey fence of log1p(Size), learned on tra
 
 # --- integrity references for seed 42 (a mismatch usually means a pandas/scikit-learn version change) ---
 EXPECTED_SPLIT_HASHES = {"train": "67cd67c1e7b86380", "val": "7f4c4f69e012f488", "test": "8b6ab3d03e11fffa"}
-EXPECTED_REFERENCE_ID = "1d3e9a3314be62f1"
+EXPECTED_REFERENCE_ID = "e9c8bab776f26dc9"
 
 # --- paths ---
 ROOT = Path(__file__).resolve().parent.parent
 DATA_RAW = ROOT / "data" / "raw" / "House_Rent_Dataset.csv"
 REPORTS = ROOT / "reports"
 RESULTS_CSV = REPORTS / "results.csv"  # the single results file (mean ± std over SEEDS)
+FINAL_ERRORS_CSV = REPORTS / "final_model_errors.csv"  # final model: test error by city and rent band
+FINAL_RESIDUALS_CSV = REPORTS / "final_model_residuals.csv"  # final model: histogram of test residuals
 RUN_REFERENCE = REPORTS / ".run_reference.json"  # same-data tripwire across notebooks (one id per seed)
 MODELS_DIR = ROOT / "models"
 VIZ_DIR = ROOT / "visualizations"
