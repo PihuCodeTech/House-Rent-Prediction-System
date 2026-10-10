@@ -71,8 +71,6 @@ GOOD = {
     "BHK": 2,
     "Size": 900,
     "Bathroom": 2,
-    "current_floor": 3,
-    "total_floors": 5,
     "Furnishing Status": "Semi-Furnished",
     "Area Type": "Super Area",
     "Tenant Preferred": "Bachelors/Family",
@@ -125,7 +123,13 @@ def test_preprocessor_depends_on_training_rows_only(datas):
 def test_valid_listing(schema):
     row, warns = validate_listing(GOOD, schema)
     assert list(row.columns) == RAW_COLUMNS and len(row) == 1 and warns == []
-    assert row.iloc[0]["Floor"] == "3 out of 5"
+
+
+def test_floor_fields_are_ignored(schema):
+    """Floors are not model inputs any more: old callers may still send them, without effect or error."""
+    row, warns = validate_listing({**GOOD, "current_floor": 9, "total_floors": 3}, schema)
+    plain, _ = validate_listing(GOOD, schema)
+    assert warns == [] and row.equals(plain)
 
 
 def test_lenient_formats_are_normalised(schema):
@@ -138,7 +142,7 @@ def test_lenient_formats_are_normalised(schema):
 
 def test_optional_fields_get_defaults_with_warnings(schema):
     row, warns = validate_listing({"City": "Delhi", "BHK": 2, "Size": 1000, "Bathroom": 2}, schema)
-    assert len(row) == 1 and len(warns) >= 6
+    assert len(row) == 1 and len(warns) >= 4  # four listing details defaulted + no locality
 
 
 @pytest.mark.parametrize(
@@ -152,8 +156,6 @@ def test_optional_fields_get_defaults_with_warnings(schema):
         ({"Size": "abc"}, "must be a number"),
         ({"Size": float("nan")}, "finite"),
         ({"Bathroom": True}, "must be a number"),
-        ({"current_floor": 9, "total_floors": 3}, "above the building"),
-        ({"current_floor": -5}, "below -2"),
         ({"Furnishing Status": "Luxury"}, "Furnishing Status must be one of"),
     ],
 )
@@ -205,3 +207,100 @@ def test_results_csv():
     assert set(table["Model"]) <= {display_name(k) for k in REGISTRY}
     for col in RESULT_COLUMNS[1:]:
         assert table[col].str.fullmatch(r"-?\d+\.\d{2} ± \d+\.\d{2}").all(), col
+
+
+def test_error_profile_handles_constant_predictions():
+    """A constant model (the baselines) puts every prediction in one price band; the range must still work."""
+    from src.prediction import build_error_profile, likely_range
+
+    rng = np.random.default_rng(0)
+    tests = [(rng.lognormal(10, 1, 700), np.full(700, 20_000.0)) for _ in range(3)]
+    low, high = likely_range(20_000, build_error_profile(tests))
+    assert 0 < low < 20_000 < high
+
+
+def test_what_if_stays_inside_the_trained_ranges():
+    from src.prediction import load_final, load_input_schema, what_if
+
+    if not (config.MODELS_DIR / "final_model.joblib").exists():
+        pytest.skip("final model not built yet")
+    schema = load_input_schema()
+    rows = what_if({"City": "Mumbai", "BHK": 6, "Size": 8000, "Bathroom": 10}, load_final(), schema)
+    labels = " ".join(r["label"] for r in rows)
+    assert "7 BHK" not in labels and "11 bathrooms" not in labels and "9,600 sq ft" not in labels
+    assert "5 BHK" in labels and "9 bathrooms" in labels
+
+
+def test_range_band_explains_the_likely_range():
+    from src.prediction import likely_range, range_band
+
+    profile = {
+        "edges": [10_000, 20_000],
+        "ratio_low": [0.5, 0.6, 0.7],
+        "ratio_high": [1.5, 1.6, 1.7],
+        "coverage": 0.8,
+        "n_test_predictions": 300,
+    }
+    band = range_band(15_000, profile)
+    assert band == {"low": 10_000, "high": 20_000, "n": 100, "ratio_low": 0.6, "ratio_high": 1.6}
+    low, high = likely_range(15_000, profile)
+    assert (low, high) == (15_000 * band["ratio_low"], 15_000 * band["ratio_high"])
+    assert range_band(5_000, profile)["low"] is None and range_band(50_000, profile)["high"] is None
+    assert range_band(1, None) is None
+
+
+def test_final_model_error_reports_are_aggregates_only():
+    """reports/final_model_*.csv must never contain listing rows (the dataset can't be redistributed)."""
+    import pandas as pd
+
+    for path in (config.FINAL_ERRORS_CSV, config.FINAL_RESIDUALS_CSV):
+        if not path.exists():
+            pytest.skip("final diagnostics not generated yet")
+        table = pd.read_csv(path, encoding="utf-8-sig")
+        assert len(table) <= 50
+        assert not {"Rent", "Area Locality", "actual", "predicted"} & set(table.columns)
+    errors = pd.read_csv(config.FINAL_ERRORS_CSV, encoding="utf-8-sig")
+    overall = errors[errors["Group"] == "Overall"].iloc[0]
+    assert errors[errors["Group"] == "City"]["Test predictions"].sum() == overall["Test predictions"]
+    assert errors[errors["Group"] == "Rent band"]["Test predictions"].sum() == overall["Test predictions"]
+
+
+# ----------------------------- the locality × size baseline and the median % error -----------------------------
+def test_locality_rate_baseline_uses_training_rows_and_falls_back():
+    from src.models import LocalityRateBaseline
+
+    X = pd.DataFrame(
+        {
+            "City": ["A"] * 4 + ["B"],
+            "locality_key": ["A | x"] * 3 + ["A | y", "B | z"],
+            "Size": [1000.0, 1000.0, 500.0, 1000.0, 1000.0],
+        }
+    )
+    y = [10_000, 12_000, 7_000, 40_000, 9_000]  # rates 10, 12, 14 (x) · 40 (y, one listing) · 9 (z)
+    m = LocalityRateBaseline(min_listings=3).fit(X, y)
+    new = pd.DataFrame(
+        {"City": ["A", "A", "B", "C"], "locality_key": ["A | x", "A | y", "B | new", "C | q"], "Size": [100.0] * 4}
+    )
+    np.testing.assert_allclose(m.predict(new), [1200, 1300, 900, 1200])  # x median 12; y → city A median 13;
+    # unknown locality → city B 9; unknown city → overall median 12
+
+
+def test_baseline_rates_come_from_training_rows_only(datas):
+    from src.models import LocalityRateBaseline
+
+    d = datas[42]
+    m = LocalityRateBaseline().fit(d["X_train_raw"], d["y_train"])
+    rate = d["y_train"] / d["X_train_raw"]["Size"]
+    expected = rate.groupby(d["X_train_raw"]["City"]).median()
+    assert m.city_rate_ == pytest.approx(expected.to_dict())  # nothing from the validation or test rows
+
+
+def test_median_percent_error():
+    from src.evaluation import median_pct_error
+
+    assert median_pct_error([100, 200, 400], [110, 150, 400]) == pytest.approx(10.0)  # errors 10%, 25%, 0%
+
+
+def test_floor_features_are_gone(datas):
+    names = datas[42]["feature_names"]
+    assert len(names) == 29 and not [n for n in names if "floor" in n.lower() or "basement" in n.lower()]
