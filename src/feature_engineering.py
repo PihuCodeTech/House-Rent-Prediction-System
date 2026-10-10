@@ -1,19 +1,19 @@
 """Feature engineering: stateless derivations (safe before the split) and the fitted FeatureBuilder.
 
-Numeric features (34 in total with the encoders in preprocessing.py):
-    BHK, Bathroom, log1p of size / BHK / bathrooms, current and total floors, floor ratio, basement flag,
-    log1p(total floors), and log1p(size) crossed with each city.
+Numeric features (29 in total with the encoders in preprocessing.py):
+    BHK, Bathroom, log1p of size / BHK / bathrooms, and log1p(size) crossed with each city.
+Floor and building height are not used: together they changed the error by about Rs 600 when shuffled (versus
+Rs 25,800 for size), and their effect had no consistent direction, so they were dropped for a simpler model.
 The posting date is not used: listings span only a few months of 2022, and it is not a property attribute.
 """
 
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.impute import SimpleImputer
 
 from .data_cleaning import LogIQRClipper
 
-FB_INPUT_COLS = ["BHK", "Bathroom", "Size", "current_floor", "total_floors", "City"]
+FB_INPUT_COLS = ["BHK", "Bathroom", "Size", "City"]
 CAT_COLS = ["City", "Furnishing Status", "Area Type", "Tenant Preferred", "Point of Contact"]
 
 
@@ -25,17 +25,16 @@ def add_stateless_features(df):
 
 
 class FeatureBuilder(BaseEstimator, TransformerMixin):
-    """Numeric features. Learns (on the fit rows only): the Size lower clip, the floor imputation medians
-    and the list of cities for the city × size interactions."""
+    """Numeric features. Learns (on the fit rows only): the Size lower clip and the list of cities for the
+    city × size interactions."""
 
     def __init__(self, clip_k=1.5):
         self.clip_k = clip_k
 
     def fit(self, X, y=None):
-        """Learn the Size clip, floor medians and city list from the fit rows."""
+        """Learn the Size clip and city list from the fit rows."""
         X = self._frame(X)
         self.clipper_ = LogIQRClipper(k=self.clip_k).fit(X[["Size"]])
-        self.floor_imputer_ = SimpleImputer(strategy="median").fit(X[["current_floor", "total_floors"]])
         self.cities_ = sorted(X["City"].unique())
         self.feature_names_out_ = np.asarray(list(self._build(X.head(2)).columns), dtype=object)
         self.n_features_in_ = X.shape[1]
@@ -59,13 +58,6 @@ class FeatureBuilder(BaseEstimator, TransformerMixin):
         bhk, bath = X["BHK"].to_numpy("float64"), X["Bathroom"].to_numpy("float64")
         out["BHK"], out["Bathroom"] = bhk, bath
         out["log_size"], out["log_bhk"], out["log_bath"] = np.log1p(size), np.log1p(bhk), np.log1p(bath)
-
-        floors = self.floor_imputer_.transform(X[["current_floor", "total_floors"]])
-        current, total = floors[:, 0], np.maximum(floors[:, 1], floors[:, 0])
-        out["current_floor"], out["total_floors"] = current, total
-        out["floor_ratio"] = np.clip(current, 0, None) / np.maximum(total, 1)
-        out["is_basement"] = (current < 0).astype("float64")
-        out["log_total_floors"] = np.log1p(total)
 
         log_size = np.log1p(size)
         for city in self.cities_:
