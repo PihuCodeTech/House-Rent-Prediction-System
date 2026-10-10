@@ -56,11 +56,6 @@ _NAMES = {
     "log_size": "log size",
     "log_bhk": "log BHK",
     "log_bath": "log bathrooms",
-    "log_total_floors": "log total floors",
-    "current_floor": "floor",
-    "total_floors": "total floors",
-    "floor_ratio": "floor ÷ total floors",
-    "is_basement": "basement",
     "locality_target_enc": "locality (target-encoded)",
 }
 
@@ -94,9 +89,12 @@ def plot_diagnostics(model, pred, data, model_name, save_path=None):
     """Three panels on the test split of one seed: actual vs predicted, residuals vs predicted, and the
     model's coefficients or feature importances (top 15)."""
     apply_style()
-    inner = (model.regressor_ if hasattr(model, "regressor_") else model).named_steps["model"]
+    fitted = model.regressor_ if hasattr(model, "regressor_") else model
+    inner = fitted.named_steps["model"] if hasattr(fitted, "named_steps") else fitted
     names = data["feature_names"]
-    if hasattr(inner, "coef_"):
+    if getattr(inner, "raw_input", False):  # rule-based baseline: no learned features
+        importance, imp_label = None, ""
+    elif hasattr(inner, "coef_"):
         importance, imp_label = pd.Series(np.ravel(inner.coef_), index=names), "Standardised coefficient (log rent)"
     elif hasattr(inner, "feature_importances_"):
         importance, imp_label = pd.Series(inner.feature_importances_, index=names), "Feature importance"
@@ -137,7 +135,12 @@ def plot_diagnostics(model, pred, data, model_name, save_path=None):
         ax[2].set(xlabel=imp_label, title="Top 15 features")
         ax[2].grid(axis="y", visible=False)
     else:
-        ax[2].text(0.5, 0.5, "constant prediction —\nno features used", ha="center", va="center", color=INK_2)
+        note = (
+            "rule of thumb —\nlocality rent per sq ft × size"
+            if getattr(inner, "raw_input", False)
+            else "constant prediction —\nno features used"
+        )
+        ax[2].text(0.5, 0.5, note, ha="center", va="center", color=INK_2)
         ax[2].set_axis_off()
     fig.suptitle(
         f"{model_name} · seed {data['seed']} · test split ({len(actual)} listings)",
@@ -146,6 +149,31 @@ def plot_diagnostics(model, pred, data, model_name, save_path=None):
         fontsize=12,
         fontweight="bold",
     )
+    fig.tight_layout()
+    return _save(fig, save_path)
+
+
+def plot_actual_vs_predicted(preds, model_name, save_path=None):
+    """The final model on its test splits (every seed's member on rows it never trained on): actual vs predicted
+    on log scales, with the perfect-prediction line."""
+    apply_style()
+    actual, predicted = preds["actual"], preds["predicted"]
+    fig, ax = plt.subplots(figsize=(6.4, 5.6))
+    lim = [min(actual.min(), predicted.min()) * 0.9, max(actual.max(), predicted.max()) * 1.1]
+    ax.plot(lim, lim, color=INK_2, lw=1, ls="--", label="perfect prediction")
+    ax.scatter(actual, predicted, s=9, alpha=0.35, color=BLUE, edgecolors="none", label="test home")
+    ax.set(
+        xscale="log",
+        yscale="log",
+        xlim=lim,
+        ylim=lim,
+        xlabel=f"Actual rent {RENT[5:]}",
+        ylabel=f"Predicted rent {RENT[5:]}",
+        title=f"{model_name}: actual vs predicted\n{len(preds):,} test predictions over seeds "
+        f"{', '.join(map(str, sorted(preds['seed'].unique())))}",
+    )
+    _rupees(ax)
+    ax.legend(loc="upper left")
     fig.tight_layout()
     return _save(fig, save_path)
 
