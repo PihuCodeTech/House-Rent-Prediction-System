@@ -1,4 +1,4 @@
-"""Model registry: twelve models, one final configuration each.
+"""Model registry: thirteen models, one final configuration each.
 
 `make_model(key, seed)` returns an unfitted model that predicts rupees. Every model sees the same prepared
 features; linear models are standardised first (tree models do not need it), and every model except the
@@ -7,6 +7,8 @@ own randomness (bootstrap rows, feature subsampling, ...); models without random
 """
 
 import numpy as np
+import pandas as pd
+from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.compose import TransformedTargetRegressor
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
@@ -16,6 +18,47 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeRegressor
 
 from .config import RANDOM_STATE, TARGET_TRANSFORM
+
+
+class LocalityRateBaseline(RegressorMixin, BaseEstimator):
+    """The rule of thumb a person would use: rent = the typical rent per sq ft of the home's locality × its size.
+
+    The rate is the median rent per sq ft of the TRAINING listings in the same locality (only if it has at least
+    `min_listings` of them), otherwise of the same city. It reads the raw columns City, locality_key and Size —
+    no encoders, no learned features — so it is the honest benchmark the machine-learning models must beat."""
+
+    raw_input = True  # evaluation feeds it the raw training columns instead of the prepared feature matrix
+
+    def __init__(self, min_listings=3):
+        self.min_listings = min_listings
+
+    def fit(self, X, y):
+        rate = np.asarray(y, dtype="float64") / X["Size"].to_numpy("float64")
+        df = pd.DataFrame({"city": X["City"].to_numpy(), "loc": X["locality_key"].to_numpy(), "rate": rate})
+        by_loc = df.groupby("loc")["rate"].agg(["median", "size"])
+        self.locality_rate_ = by_loc.loc[by_loc["size"] >= self.min_listings, "median"].to_dict()
+        self.city_rate_ = df.groupby("city")["rate"].median().to_dict()
+        self.overall_rate_ = float(np.median(rate))
+        self.n_features_in_ = 3
+        return self
+
+    def rates(self, X):
+        """Rent per sq ft used for each row (locality, else city, else overall median)."""
+        return np.array(
+            [
+                self.locality_rate_.get(loc, self.city_rate_.get(city, self.overall_rate_))
+                for loc, city in zip(X["locality_key"], X["City"], strict=True)
+            ],
+            dtype="float64",
+        )
+
+    def predict(self, X):
+        return self.rates(X) * X["Size"].to_numpy("float64")
+
+
+def is_raw(model):
+    """True for models that read the raw columns (the locality × size baseline) instead of prepared features."""
+    return bool(getattr(model, "raw_input", False))
 
 
 def _xgboost(seed):
@@ -40,6 +83,7 @@ def _catboost(seed):
 REGISTRY = {
     "baseline_mean": ("Baseline (Mean)", lambda s: DummyRegressor(strategy="mean"), False, None),
     "baseline_median": ("Baseline (Median)", lambda s: DummyRegressor(strategy="median"), False, None),
+    "baseline_locality_size": ("Baseline (Locality × Size)", lambda s: LocalityRateBaseline(), False, None),
     "linear_regression": ("Linear Regression", lambda s: LinearRegression(), True, None),
     "ridge_regression": ("Ridge Regression", lambda s: Ridge(random_state=s), True, None),
     "lasso_regression": ("Lasso Regression", lambda s: Lasso(random_state=s, max_iter=10000), True, None),
@@ -55,7 +99,9 @@ REGISTRY = {
 # ---------------------------------------------------------------------------------------------------------------
 # FINAL HYPERPARAMETERS. Each tunable model was searched with a grid search, then a Bayesian (Optuna) search on
 # the seed-42 training split (5-fold CV). Library defaults, grid-best and Bayesian-best were scored on seeds
-# 42-44 and the lowest mean test RMSE was kept (log: reports/final_hyperparameters.json).
+# 42-44 and the lowest mean test RMSE was kept (log: reports/final_hyperparameters.json). The searches ran while the
+# five floor features were still in the feature set; they were dropped afterwards (they changed the error by ~Rs 600)
+# and the tuned values were kept — `python run_all.py --tuning` re-runs the searches on the current features.
 # Models not listed use library defaults.
 # ---------------------------------------------------------------------------------------------------------------
 FINAL_PARAMS = {
@@ -98,6 +144,7 @@ FINAL_PARAMS = {
 PARAM_SOURCE = {
     "baseline_mean": "library defaults (no hyperparameters to tune)",
     "baseline_median": "library defaults (no hyperparameters to tune)",
+    "baseline_locality_size": "rule-based: median rent per sq ft of the locality (>= 3 training listings, else the city)",
     "linear_regression": "library defaults (no hyperparameters to tune)",
     "ridge_regression": "grid search (5-fold CV on seed-42 train)",
     "lasso_regression": "Bayesian search (Optuna TPE around the grid best, 5-fold CV on seed-42 train)",
@@ -198,6 +245,8 @@ def make_model(key, seed=RANDOM_STATE, target_transform=TARGET_TRANSFORM, params
     chosen = FINAL_PARAMS.get(key, {}) if params is None else params
     if chosen:
         estimator.set_params(**chosen)
+    if is_raw(estimator):
+        return estimator  # rule-based, reads raw columns and predicts rupees directly
     pipe = Pipeline(([("scaler", StandardScaler())] if standardise else []) + [("model", estimator)])
     if key.startswith("baseline") or target_transform != "log1p":
         return pipe  # the baselines predict a constant; the target transform is irrelevant for them
