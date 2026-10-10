@@ -27,6 +27,7 @@ BEFORE = ["data_exploration"]
 MODEL_NOTEBOOKS = [
     "baseline_mean",
     "baseline_median",
+    "baseline_locality_size",
     "linear_regression",
     "ridge_regression",
     "lasso_regression",
@@ -192,6 +193,8 @@ def main():
         print(table.to_string(index=False))
     saved = sorted(p.name for p in config.MODELS_DIR.glob("*.joblib"))
     print(f"\nSaved models in models/: {', '.join(saved) if saved else 'none'}")
+    if (config.MODELS_DIR / "final_model.joblib").exists():
+        print("\nOpen the app:  streamlit run app/streamlit_app.py")
     print("\n✓ done")
 
 
