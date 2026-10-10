@@ -1,0 +1,13 @@
+﻿Group,Value,Test predictions,MAE,RMSE,Median % error,Within ±20%
+Overall,All test homes,2130,9157.72,22080.99,20.8,47.65
+City,Bangalore,397,5538.48,11191.6,20.58,48.11
+City,Chennai,369,5560.99,12553.76,18.49,53.12
+City,Delhi,280,12942.08,35675.58,26.37,38.21
+City,Hyderabad,398,4551.75,9341.76,19.47,50.75
+City,Kolkata,252,3733.93,6272.37,21.73,44.44
+City,Mumbai,434,20458.12,34933.42,20.74,47.7
+Rent band,under Rs 10k,479,2526.97,4281.84,23.01,44.47
+Rent band,Rs 10k–20k,748,3019.85,4041.11,17.58,54.55
+Rent band,Rs 20k–40k,456,6746.03,8926.49,21.0,47.15
+Rent band,Rs 40k–1L,307,15905.46,20608.37,22.7,40.72
+Rent band,Rs 1L and above,140,57696.45,77956.36,25.89,38.57
