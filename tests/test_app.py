@@ -49,7 +49,7 @@ def test_estimate_page_shows_a_result_on_first_load():
     at = run_app()
     no_exceptions(at)
     html = page_html(at)
-    assert "/ month" in html and "Likely range" in html and "Model agreement" in html and "How it compares" in html
+    assert "/ month" in html and "Likely range" in html and "Model agreement" not in html and "How it compares" in html
     assert "Up to date" in html and "How to read this estimate" not in html
 
 
@@ -232,3 +232,14 @@ def test_screen_reader_tables_are_clipped_by_a_wrapper():
 
     html = ui.sr_table("x", ["a", "b"], [["1", "2"]] * 30)
     assert html.startswith('<div class="sr-only"><table>') and html.endswith("</table></div>")
+
+
+def test_likely_range_is_the_seed_spread():
+    import common
+
+    at = run_app()
+    result, _ = at.session_state["a_result"]
+    html = page_html(at)
+    assert f"{common.ui.inr_short(result['seed_low'])} – {common.ui.inr_short(result['seed_high'])}" in html
+    at.switch_page("views/afford.py").run()
+    assert "Latest estimate: the rent the model estimated" in page_html(at)
