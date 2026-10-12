@@ -24,8 +24,8 @@ class LocalityRateBaseline(RegressorMixin, BaseEstimator):
     """The rule of thumb a person would use: rent = the typical rent per sq ft of the home's locality × its size.
 
     The rate is the median rent per sq ft of the TRAINING listings in the same locality (only if it has at least
-    `min_listings` of them), otherwise of the same city. It reads the raw columns City, locality_key and Size —
-    no encoders, no learned features — so it is the honest benchmark the machine-learning models must beat."""
+    `min_listings` of them), otherwise of the same city. It reads the raw columns City, locality_key and Size, with
+    no encoders and no learned features, so it is the honest benchmark the machine-learning models must beat."""
 
     raw_input = True  # evaluation feeds it the raw training columns instead of the prepared feature matrix
 
@@ -101,7 +101,7 @@ REGISTRY = {
 # the seed-42 training split (5-fold CV). Library defaults, grid-best and Bayesian-best were scored on seeds
 # 42-44 and the lowest mean test RMSE was kept (log: reports/final_hyperparameters.json). The searches ran while the
 # five floor features were still in the feature set; they were dropped afterwards (they changed the error by ~Rs 600)
-# and the tuned values were kept — `python run_all.py --tuning` re-runs the searches on the current features.
+# and the tuned values were kept. `python run_all.py --tuning` re-runs the searches on the current features.
 # Models not listed use library defaults.
 # ---------------------------------------------------------------------------------------------------------------
 FINAL_PARAMS = {
