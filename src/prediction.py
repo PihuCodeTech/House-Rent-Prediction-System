@@ -1,4 +1,4 @@
-"""Saved models and predictions for NEW listings — the layer the app (phase 2) calls.
+"""Saved models and predictions for NEW listings: the layer the app (phase 2) calls.
 
 Saved models
     Every model notebook saves a SeedAveragedModel to models/<key>.joblib: the model trained on each seed's
@@ -323,8 +323,8 @@ def validate_listing(listing, schema):
     Raises InvalidListing listing every problem.
 
     Fields: City, BHK, Size (sq ft), Bathroom (required); Area Locality, Furnishing Status, Area Type,
-    Tenant Preferred, Point of Contact (optional — sensible defaults with a warning). Floor fields are ignored: the
-    model does not use them.
+    Tenant Preferred, Point of Contact (optional, with sensible defaults and a warning). Floor fields are ignored,
+    since the model does not use them.
     Case and surrounding spaces of choices are ignored; numbers may be strings such as "1,200".
     """
     if not isinstance(listing, dict):
