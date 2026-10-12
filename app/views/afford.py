@@ -31,8 +31,21 @@ with left, st.container(key="card_af_form"):
         )
     )
     if estimate:
+        st.html(
+            ui.field_label(
+                "Rent to check",
+                info="Latest estimate: the rent the model estimated for the home you last described on the Rent "
+                "estimate page (its likely range is shown in the charts too). My own figure: type any monthly rent "
+                "— a listing you are looking at, or what you pay now.",
+            )
+        )
         source = common._choice(
-            "af_", "source", "Rent to check", ["Latest estimate", "My own figure"], "Latest estimate"
+            "af_",
+            "source",
+            "Rent to check",
+            ["Latest estimate", "My own figure"],
+            "Latest estimate",
+            label_visibility="collapsed",
         )
     else:
         source = "My own figure"
@@ -41,7 +54,7 @@ with left, st.container(key="card_af_form"):
         st.html(
             ui.field_note(
                 f"<b>{ui.inr(rent, 100)}</b> a month — {ui.esc(ui.describe(estimate['listing']))}. "
-                f"Likely range {ui.inr_short(estimate['low'])} – {ui.inr_short(estimate['high'])}."
+                f"Likely range {ui.inr_short(estimate['seed_low'])} – {ui.inr_short(estimate['seed_high'])}."
             )
         )
     else:
@@ -143,7 +156,11 @@ with c2, st.container(key="card_af_rents"):
     aside = f"dashed line = most rent within {limit}% ({ui.inr_short(b['max_rent'])})" if b["max_rent"] > 0 else ""
     st.html(ui.card_title("bars", "Rent against your budget", aside))
     if source == "Latest estimate":
-        rents = [("Likely low", estimate["low"]), ("Estimate", estimate["rent"]), ("Likely high", estimate["high"])]
+        rents = [
+            ("Likely low", estimate["seed_low"]),
+            ("Estimate", estimate["rent"]),
+            ("Likely high", estimate["seed_high"]),
+        ]
     else:
         rents = [("This rent", float(rent))]
     bars = pd.DataFrame(rents, columns=["name", "rent"])
