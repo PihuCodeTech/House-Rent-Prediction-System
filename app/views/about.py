@@ -13,8 +13,6 @@ from src.evaluation import read_results
 model, meta = common.model(), common.meta()
 results = meta.get("results_mean_std_over_seeds", {})
 name = meta.get("model", model.name)
-profile = getattr(model, "error_profile", None) or {}
-coverage = int(round(profile.get("coverage", 0.8) * 100))
 seeds = list(getattr(model, "seeds", config.SEEDS))
 SETUP_HINT = "Run <code>python run_all.py --only final_selection</code> to add it."
 
@@ -66,7 +64,7 @@ if NUM is not None and "Test RMSE mean" in NUM:
 
 # ----------------------------- 1. the study -----------------------------
 with st.container(key="card_about"):
-    st.html(ui.card_head("info", "About this study", "What was compared, how, and why this model was chosen."))
+    st.html(ui.card_head("info", "About this study", "What was compared, how and why this model was chosen."))
     st.html(
         '<p class="lead" style="margin-top:.9rem">How well can a home\'s monthly rent be predicted from its listing '
         "alone — city, locality, size, bedrooms, bathrooms, furnishing and who listed it?</p>"
@@ -158,24 +156,6 @@ with st.container(key="card_leaderboard"):
         pct = board["Test Median % Error mean"] if "Test Median % Error mean" in board else [None] * len(board)
         rows = list(zip(board["Model"], board["Test RMSE mean"], board["Test RMSE std"], pct, strict=True))
         st.html(ui.leaderboard(rows, name, rule=RULE))
-        notes = [
-            "Whiskers show ± 1 standard deviation over the three seeds. Median % error is the typical miss "
-            "relative to the home's own rent — unlike RMSE in rupees, it isn't dominated by a few very expensive "
-            "homes."
-        ]
-        if len(tied) > 1:
-            notes.append(
-                f"{', '.join(tied[:-1])} and {tied[-1]} are within one standard deviation of the lowest RMSE — effectively tied; "
-                f"the tie is broken by the lowest MAE."
-            )
-        if rule_row is not None:
-            notes.append(
-                f"The striped bar is the rule of thumb a person would use — the locality's median rent per sq ft × "
-                f"size ({ui.inr(rule_row['Test RMSE mean'])} RMSE, {rule_row['Test Median % Error mean']:.0f}% median "
-                "error). The gap to it is what the machine-learning models really add. Always guessing the average "
-                "rent (not shown) is far worse."
-            )
-        st.html(f'<p class="muted" style="margin-top:.7rem">{ui.esc(" ".join(notes))}</p>')
 
 # ----------------------------- 3. where it goes wrong -----------------------------
 with st.container(key="card_errors"):
@@ -253,14 +233,12 @@ with st.container(key="card_errors"):
 c1, c2 = st.columns(2, gap="small")
 with c1, st.container(key="card_about_range"):
     st.html(ui.card_title("chart", "How the likely range works"))
-    n_pred = profile.get("n_test_predictions")
+    typical = f" (a median miss of {mdape:.0f}%)" if mdape is not None else ""
     st.html(
-        f'<p class="muted">The model\'s {f"{n_pred:,} " if n_pred else ""}predictions on test homes it never trained '
-        f"on were split into five equal-sized price bands by predicted rent. Within each band, the range covers "
-        f"the middle {coverage}% of actual ÷ predicted ratios, so a home predicted at ₹40,000 gets the spread seen "
-        "for other homes predicted at that price level. It is calibrated by price level only — not by city or for "
-        f"a particular home — and is an empirical range, not a formal {coverage}% prediction interval. It is wide "
-        "because similar listings really do rent for different amounts.</p>"
+        '<p class="muted">The estimate is the average of three models, each trained on a different random 70% of the '
+        "listings. The likely range runs from the lowest to the highest of their three estimates, so it shows how "
+        "firmly the data pins down this home's rent. It is not the spread of real rents: similar homes listed at "
+        f"the same time still rent for noticeably more or less than the estimate{typical}.</p>"
     )
 with c2, st.container(key="card_about_knows"):
     st.html(ui.card_title("tag", "What the model knows"))
