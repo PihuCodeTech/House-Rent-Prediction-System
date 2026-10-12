@@ -187,7 +187,7 @@ button[data-testid="stBaseButton-tertiary"] p {{ font-size: .85rem; color: {T["i
 .status.ok {{ color: {T["green"]}; background: #EEF5F0; border-color: #CFE3D6; }}
 .status.old {{ color: {T["rust_dark"]}; background: {T["rust_soft"]}; border-color: #F1D3C8; }}
 .status-when {{ display: block; text-align: right; font-family: {SANS}; font-size: .74rem; color: {T["ink2"]}; margin-top: .35rem; }}
-.res-tiles {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; margin-top: 1.1rem;
+.res-tiles {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: 1.1rem;
   border-top: 1px solid {T["line"]}; padding-top: 1.1rem; }}
 .res-tiles .tile b {{ font-size: 1.35rem; }}
 .res-tiles .tile.hl {{ background: {T["rust_soft"]}; border-color: #F1D3C8; }}
@@ -347,15 +347,13 @@ def status_pill(stale, when=None):
 
 
 def result_card(result, when=None, stale=False, compact=False):
-    """The main result: monthly rent, the likely range, rent per sq ft and (full card) the three seed models'
-    agreement. `when` is the time it was calculated; `stale` marks it as no longer matching the form."""
+    """The main result: monthly rent, the likely range (lowest to highest of the three seed models) and rent per
+    sq ft. `when` is the time it was calculated; `stale` marks it as no longer matching the form."""
     listing = result["listing"]
     cells = [
-        ("hl", "Likely range", f"{inr_short(result['low'])} – {inr_short(result['high'])}"),
+        ("hl", "Likely range", f"{inr_short(result['seed_low'])} – {inr_short(result['seed_high'])}"),
         ("", "Rent per sq ft", inr(result["rent_per_sqft"])),
     ]
-    if not compact:
-        cells.append(("", "Model agreement", f"{inr_short(result['seed_low'])} – {inr_short(result['seed_high'])}"))
     tiles_html = "".join(f'<div class="tile {c}"><small>{esc(a)}</small><b>{esc(b)}</b></div>' for c, a, b in cells)
     return f"""
 <div class="{"res-mini" if compact else "res"}">
