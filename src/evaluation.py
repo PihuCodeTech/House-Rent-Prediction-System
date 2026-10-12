@@ -69,9 +69,9 @@ def with_preprocessor(model, seed):
 
 
 def cross_val_rmse(model, data, folds=config.CV_FOLDS):
-    """5-fold CV on the TRAINING split only. Each fold re-fits the whole pipeline — preprocessor
-    (locality target encoding, size clipping, floor imputation, one-hot), scaler, target transform and
-    model — on the fold's training rows, so the held-out fold never influences any fitted step."""
+    """5-fold CV on the TRAINING split only. Each fold re-fits the whole pipeline on that fold's training rows:
+    the preprocessor (locality target encoding, size clipping, floor imputation, one-hot), the scaler, the target
+    transform and the model. The held-out fold never influences any fitted step."""
     seed = data["seed"]
     cv = KFold(n_splits=folds, shuffle=True, random_state=seed)
     scoring = {
@@ -119,7 +119,7 @@ def run_seeds(key, clean=None, seeds=config.SEEDS, verbose=True):
     """Run one model on every seed. Each seed changes the train/val/test split, the CV folds, the locality
     encoder's internal folds and the model's own randomness. Returns (per_seed DataFrame, artifacts of the
     first seed: {"model", "pred", "data"} for diagnostics, members: one fitted pipeline per seed, tests: each seed's
-    (actual, predicted) test rents — every prediction from the member that never trained on those rows)."""
+    (actual, predicted) test rents, where every prediction comes from the member that never trained on those rows)."""
     rows, first, members, tests = [], None, [], []
     for seed in seeds:
         data = prepare_data(seed=seed, clean=clean)
@@ -293,7 +293,7 @@ def residual_histogram(preds, width=2_500, limit=50_000):
 
 
 def save_final_diagnostics(averaged, clean=None):
-    """Write reports/final_model_errors.csv and reports/final_model_residuals.csv (aggregates only — no listing
+    """Write reports/final_model_errors.csv and reports/final_model_residuals.csv (aggregates only, no listing
     rows) and visualizations/final_actual_vs_predicted.png. Returns (predictions, breakdown, histogram)."""
     from .plotting import plot_actual_vs_predicted
 
