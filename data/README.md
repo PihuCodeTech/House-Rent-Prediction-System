@@ -1,6 +1,6 @@
 # Data
 
-The dataset is **not included in this repository** — it belongs to its author and is not ours to redistribute.
+The dataset is not included in this repository, since it belongs to its author and is not ours to redistribute.
 
 ## Get it
 
@@ -23,9 +23,9 @@ this README.
 |---|---|
 | Posted On | Date the listing was posted (not used as a feature) |
 | BHK | Number of bedrooms, hall, kitchen |
-| Rent | Monthly rent in rupees — **the target** |
+| Rent | Monthly rent in rupees (**the target**) |
 | Size | Size in square feet |
-| Floor | Floor and building height, e.g. "Ground out of 2", "3 out of 5" |
+| Floor | Floor and building height, e.g. "Ground out of 2", "3 out of 5" (checked for validity, not used as a feature) |
 | Area Type | How the size was measured: Super Area, Carpet Area or Built Area |
 | Area Locality | Locality of the property |
 | City | Bangalore, Chennai, Delhi, Hyderabad, Kolkata or Mumbai |
