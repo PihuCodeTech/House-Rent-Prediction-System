@@ -1,4 +1,4 @@
-"""Load the raw dataset — the single input of the whole pipeline."""
+"""Load the raw dataset, the single input of the whole pipeline."""
 
 import pandas as pd
 
