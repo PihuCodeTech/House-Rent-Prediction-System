@@ -1,209 +1,141 @@
-# House Rent Prediction
+# Kiraya: House Rent Prediction
 
-Predicting the monthly rent of flats and houses in six Indian cities from their listing details — thirteen models
-(including a locality × size rule of thumb) compared fairly on identical data, three random seeds each, with no data
-leakage.
+Kiraya (Hindi for *rent*) estimates the monthly rent of a flat or house in six Indian cities (Mumbai, Delhi,
+Bangalore, Chennai, Hyderabad and Kolkata) from its listing details. Thirteen models were compared on identical data
+across three random train/validation/test splits, with no data leakage, and the best of them drives a Streamlit app.
 
-**Final model: Gradient Boosting — test RMSE ₹22,077 ± 532, typical error (MAE) ₹9,158 a month, median error 20.9%
-of the rent, R² 0.83**, averaged over three different train/validation/test splits. The honest benchmark is the rule
-of thumb a person would use — the locality's median rent per sq ft × size — which scores ₹31,953 RMSE and a 26.9%
-median error: the model cuts RMSE by 31% and the median error by 6 points. The top three boosting models are
-statistically tied on RMSE; Gradient Boosting has the lowest MAE among them.
+| Final model | Test RMSE | Test MAE | Median % error | R² |
+|---|--:|--:|--:|--:|
+| **Gradient Boosting** | ₹22,077 ± 532 | ₹9,158 ± 369 | 20.9% | 0.83 |
+| Rule of thumb (locality rent per sq ft × size) | ₹31,953 ± 1,546 | ₹12,738 ± 664 | 26.9% | 0.65 |
 
-![Test error by model](visualizations/model_comparison.png)
-
-## The app — Kiraya
+Figures are mean ± standard deviation over seeds 42, 43 and 44, in rupees per month. Compared with the locality × size
+rule of thumb that a person might reach for, the model lowers RMSE by 31% and the median error from 27% to 21%.
 
 ![Kiraya app](app/screenshot.png)
 
-A Streamlit app on top of the final model, with four pages in the top bar:
+## Contents
 
-- **Rent estimate** — describe a home (city, locality, BHK, bathrooms, size and how it was measured; furnishing,
-  who listed it and preferred tenants under *Listing details*) and press **Estimate rent**. The result card shows the monthly rent,
-  the **likely range** (the middle 80% of actual ÷ predicted ratios for test homes in the same predicted-price band —
-  empirical, not a formal prediction interval), rent per sq ft and how far the three seed models agree. Below it:
-  **how it compares** with the locality and city medians, and **what would change the estimate** (the same home
-  furnished, 20% larger, agent-listed, …). Changing any input marks the result *Outdated* and fades it until it is
-  recalculated; **Reset** brings back the example home. Inputs are kept when you switch pages.
-- **Compare two homes** — two homes side by side and how far apart their rents are.
-- **Affordability calculator** — check the latest estimate (or any rent) against your take-home income: the share
-  going to housing against a limit you choose (30% by default), what's left, the most rent within that limit, and two
-  charts — where your income goes, and the likely-low / estimate / likely-high rents against your budget.
-- **About** — the study at a glance, why Gradient Boosting was chosen, MAE / RMSE / R², a leaderboard of all models,
-  and where the model goes wrong: a residual histogram and actual vs predicted.
-
-Inputs are limited to the ranges in the data; an unknown locality, defaults assumed and similar cases are explained in
-a notes bar, and invalid input or missing or outdated model files get a clear message instead of a crash.
-
-```bash
-python run_all.py                    # once: builds models/final_model.joblib and models/input_schema.json
-streamlit run app/streamlit_app.py   # opens http://localhost:8501
-```
+- [Results](#results)
+- [The app](#the-app)
+- [How it works](#how-it-works)
+- [Project structure](#project-structure)
+- [Getting started](#getting-started)
+- [Dataset and licence](#dataset-and-licence)
 
 ## Results
 
-Mean ± standard deviation over seeds 42, 43 and 44 (full table with train, CV and validation errors:
-[`reports/results.csv`](reports/results.csv)). Errors are in rupees per month; lower is better. **Median % error** is
-the typical miss relative to the home's own rent (half the predictions are closer) — unlike RMSE in rupees, it is not
-dominated by a few very expensive homes.
+The table lists all thirteen models, best first. Median percentage error is the typical miss relative to a home's own
+rent; unlike RMSE in rupees, it is not pulled around by a few very expensive homes. The full table, with train,
+cross-validation and validation errors, is in [`reports/results.csv`](reports/results.csv).
 
-| Model | Test RMSE | Test MAE | Median % error | Test R² | CV RMSE (train) |
-|---|--:|--:|--:|--:|--:|
-| LightGBM | 22,012 ± 787 | 9,359 ± 397 | 21.5 ± 0.8 | 0.83 ± 0.02 | 28,806 ± 2,315 |
-| **Gradient Boosting** (final) | **22,077 ± 532** | **9,158 ± 369** | **20.9 ± 1.0** | **0.83 ± 0.02** | 28,809 ± 2,248 |
-| XGBoost | 22,587 ± 1,562 | 9,355 ± 347 | 20.9 ± 1.0 | 0.82 ± 0.03 | 29,899 ± 2,065 |
-| CatBoost | 22,874 ± 1,061 | 9,386 ± 265 | 20.8 ± 0.5 | 0.82 ± 0.02 | 30,520 ± 2,768 |
-| Random Forest | 23,485 ± 1,589 | 9,906 ± 431 | 22.6 ± 0.7 | 0.81 ± 0.02 | 30,696 ± 2,243 |
-| Decision Tree | 25,059 ± 1,173 | 10,506 ± 643 | 24.2 ± 1.1 | 0.78 ± 0.01 | 31,136 ± 891 |
-| Elastic Net | 25,075 ± 622 | 10,357 ± 127 | 22.5 ± 1.0 | 0.78 ± 0.02 | 32,182 ± 1,687 |
-| Lasso Regression | 25,085 ± 658 | 10,362 ± 115 | 22.5 ± 1.1 | 0.78 ± 0.02 | 32,173 ± 1,663 |
-| Ridge Regression | 25,146 ± 675 | 10,357 ± 115 | 22.1 ± 0.9 | 0.78 ± 0.02 | 32,297 ± 1,749 |
-| Linear Regression | 25,680 ± 1,099 | 10,351 ± 209 | 21.8 ± 1.4 | 0.77 ± 0.01 | 32,602 ± 1,406 |
-| *Baseline (Locality × Size)* | 31,953 ± 1,546 | 12,738 ± 664 | 26.9 ± 1.4 | 0.65 ± 0.01 | 36,456 ± 2,371 |
-| Baseline (Mean) | 53,731 ± 2,976 | 29,309 ± 166 | 112.3 ± 2.4 | 0.00 ± 0.00 | 57,777 ± 3,623 |
-| Baseline (Median) | 56,583 ± 2,929 | 23,617 ± 330 | 55.1 ± 0.7 | −0.11 ± 0.01 | 60,573 ± 3,663 |
+| Model | Test RMSE (₹) | Test MAE (₹) | Median % error | Test R² |
+|---|--:|--:|--:|--:|
+| LightGBM | 22,012 ± 787 | 9,359 ± 397 | 21.5 ± 0.8 | 0.83 ± 0.02 |
+| **Gradient Boosting** · final | **22,077 ± 532** | **9,158 ± 369** | **20.9 ± 1.0** | **0.83 ± 0.02** |
+| XGBoost | 22,508 ± 1,103 | 9,346 ± 321 | 21.1 ± 0.7 | 0.82 ± 0.02 |
+| CatBoost | 22,874 ± 1,061 | 9,386 ± 265 | 20.8 ± 0.5 | 0.82 ± 0.02 |
+| Random Forest | 23,563 ± 1,591 | 9,931 ± 414 | 22.5 ± 0.5 | 0.81 ± 0.02 |
+| Decision Tree | 25,059 ± 1,173 | 10,506 ± 643 | 24.2 ± 1.1 | 0.78 ± 0.01 |
+| Elastic Net | 25,075 ± 622 | 10,357 ± 127 | 22.5 ± 1.0 | 0.78 ± 0.02 |
+| Lasso Regression | 25,085 ± 658 | 10,362 ± 115 | 22.5 ± 1.1 | 0.78 ± 0.02 |
+| Ridge Regression | 25,146 ± 675 | 10,357 ± 115 | 22.1 ± 0.9 | 0.78 ± 0.02 |
+| Linear Regression | 25,680 ± 1,099 | 10,351 ± 209 | 21.8 ± 1.4 | 0.77 ± 0.01 |
+| *Baseline: locality × size* | 31,953 ± 1,546 | 12,738 ± 664 | 26.9 ± 1.4 | 0.65 ± 0.01 |
+| *Baseline: mean rent* | 53,731 ± 2,976 | 29,309 ± 166 | 112.3 ± 2.4 | 0.00 ± 0.00 |
+| *Baseline: median rent* | 56,583 ± 2,929 | 23,617 ± 330 | 55.1 ± 0.7 | −0.11 ± 0.01 |
 
-**Choosing the final model.** LightGBM, Gradient Boosting and XGBoost are within one standard deviation of the lowest
-test RMSE, so they count as tied; the tie is broken by the lowest test MAE, which picks Gradient Boosting (it also has
-the smallest spread across seeds). The rule is applied automatically in
-[`notebooks/final_selection.ipynb`](notebooks/final_selection.ipynb).
+LightGBM, Gradient Boosting and XGBoost all fall within one standard deviation of the lowest test RMSE, so the three
+are effectively tied. Gradient Boosting was chosen from among them because it has the lowest MAE and the smallest
+variation across seeds. Every learned model beats the locality × size rule of thumb by 20–31% on RMSE, though the gain
+narrows to 3–6 points on median percentage error: the rule already prices an ordinary flat well, and the models earn
+their keep mainly on unusual and expensive homes. Size is the strongest predictor of rent, especially in Mumbai,
+followed by whether an agent lists the home, the number of bathrooms and the locality.
 
-**The rule-of-thumb baseline** predicts rent = the median rent per sq ft of the training listings in the same
-locality (at least 3 of them, otherwise the city) × size. It reads only city, locality and size, and is what the
-machine-learning models have to beat to be worth using. Every learned model beats it clearly on RMSE (by 20–31%);
-on median % error the gain is smaller (3–6 points), because the rule of thumb already captures most of the price
-of an ordinary flat — the models add most for unusual and expensive homes.
+<p align="center">
+  <img src="visualizations/model_comparison.png" width="49%" alt="Test error by model">
+  <img src="visualizations/feature_importance.png" width="49%" alt="What the final model relies on">
+</p>
 
-**What drives rent.** Size dominates — especially in Mumbai, where a square foot costs several times more than
-anywhere else — followed by the number of bathrooms, whether an agent lists the property, and the locality.
+## The app
 
-![What the final model relies on](visualizations/feature_importance.png)
+A Streamlit app built on the final model, with four pages:
 
-The final model's predictions on unseen listings (seed 42) track actual rents closely across two orders of magnitude;
-errors grow for the most expensive properties:
+| Page | What it does |
+|---|---|
+| **Rent estimate** | Describe a home and get its monthly rent, a likely range (the spread of the three seed models), rent per sq ft against the locality and city medians, and what would change the estimate. |
+| **Compare two homes** | Two homes side by side and how far apart their rents are. |
+| **Affordability calculator** | The latest estimate, or any rent, against your take-home income: share of income, what's left, and the most rent within the common 30% guideline. |
+| **About** | The study at a glance, a leaderboard of all models, and where the model goes wrong. |
 
-![Gradient Boosting diagnostics](visualizations/gradient_boosting.png)
-
-Pooled over the three seeds' test splits (2,130 predictions), about half the predictions are within ±20% of the
-actual rent. Errors in rupees are largest in Mumbai and Delhi and for homes above ₹1 lakh, but relative to the rent
-they are fairly even (median error 18–26% in every rent band) —
-[`reports/final_model_errors.csv`](reports/final_model_errors.csv).
+Inputs are limited to the ranges seen in the data, and unusual or invalid input produces a clear message rather than
+an error.
 
 ## How it works
 
-1. **Clean** (`src/data_cleaning.py`). Fixed rules, never hand-picked rows: trim text and normalise locality names,
-   keep physically valid listings, drop 6 implausible ones (rent above ₹500 per sq ft — e.g. a 3-bedroom flat of
-   10 sq ft) and 9 re-listed duplicates, and parse "3 out of 5" into floor numbers to check validity. 4,746 → 4,731
+1. **Clean.** Fixed rules rather than hand-picked rows: normalise the text, keep physically valid listings, and remove
+   6 implausible ones (rent above ₹500 per sq ft) and 9 re-listed duplicates. The data goes from 4,746 to 4,731
    listings.
-2. **Split** each seed's data 70 / 15 / 15 into training, validation and test sets, balanced across rent levels.
-   Nothing learned from data ever sees validation or test rows: extreme rent-per-sq-ft listings are trimmed from the
-   training rows only, and every encoder, imputer and scaler is fitted on training rows only.
-3. **Features** (`src/feature_engineering.py`, `src/preprocessing.py`) — 29 in total: size, bedrooms and bathrooms
-   (also on a log scale), size × city, one-hot city / furnishing / area type / tenant / contact, and the locality's
-   typical rent (target encoding, cross-fitted so a listing never sees its own rent). Floor and building height were
-   dropped: shuffling all five floor features changed the final model's error by only about ₹600 (versus ₹25,800 for
-   size), with no consistent direction, so the simpler model was kept.
-4. **Learn log rent.** Rents are heavily skewed (₹1,200 to ₹35 lakh), so models learn log(1 + rent) and their
-   predictions are converted back to rupees; all errors are reported in rupees.
-5. **Tune** (`src/tuning.py`, `notebooks/hyperparameter_tuning.ipynb`). For each model: a grid search, then a
-   Bayesian search (Optuna) around the best grid point, both scored by 5-fold cross-validation on training data. The
-   library defaults, grid-best and Bayesian-best were compared on the three seeds and the best kept
-   ([`reports/final_hyperparameters.json`](reports/final_hyperparameters.json)). The searches ran before the floor
-   features were dropped; `python run_all.py --tuning` repeats them on the current features.
-6. **Evaluate on three seeds** (`src/evaluation.py`). Each seed draws a new split, new CV folds and new model
-   randomness; every metric is reported as mean ± std. Cross-validation re-fits the whole preprocessing inside each
-   fold. A fingerprint check guarantees every model saw exactly the same data for each seed.
-7. **Save** (`src/prediction.py`). Each model is saved as the average of its three seed-trained pipelines
-   (`models/<model>.joblib`); the best becomes `models/final_model.joblib`, next to `models/input_schema.json` (the
-   allowed choices and value ranges). `predict_listing({...})` validates a listing, fills sensible defaults with
-   warnings, explains invalid input, and returns the predicted rent with its range across seeds.
-
-## Limitations
-
-- **Six listings were removed as entry errors** (rent above ₹500 per sq ft). One of them, ₹35 lakh a month for a
-  2,500 sq ft flat in Bangalore, dominated test RMSE whenever it fell into a test split. The rule is fixed and
-  documented in [`notebooks/data_exploration.ipynb`](notebooks/data_exploration.ipynb), but it is a judgement call.
-- **Model versions were chosen on test RMSE** (and the final model by a tie-break on test MAE). The searches themselves used only cross-validation on training data,
-  but choosing between default, grid and Bayesian settings by test score makes the reported test errors slightly
-  optimistic. Hyperparameters were also tuned on seed 42's training rows, some of which are test rows for seeds 43–44.
-- **The spread across seeds is real.** Validation RMSE varies by about ±₹10k between seeds because a few very
-  expensive listings land in different splits; differences between the top models are smaller than this spread.
-- **Data scope.** About 4,700 listings from six cities, posted in April–July 2022 on one website. Predictions outside
-  these cities, sizes (20–8,000 sq ft) or that period are extrapolations; the app warns about out-of-range inputs.
-- **No location detail beyond locality names** — a locality not seen in training gets an average locality effect.
-- Random Forest and XGBoost results can differ by a few rupees between machines (multithreaded subsampling).
+2. **Split.** For each seed the data is divided 70 / 15 / 15 into training, validation and test sets, stratified on
+   rent. Every encoder, scaler and filter is fitted on the training rows alone, and re-fitted inside each
+   cross-validation fold.
+3. **Features.** Twenty-nine in all: size, bedrooms and bathrooms (also on a log scale), size × city, one-hot
+   encodings of city, furnishing, area type, tenant and contact, and the locality's typical rent from a cross-fitted
+   target encoding. Floor and building height were tried and dropped, since they moved the error by only about ₹600.
+4. **Learn log rent.** Rents run from ₹1,200 to ₹35 lakh, so the models learn log(1 + rent); all errors are reported
+   back in rupees.
+5. **Tune.** A grid search comes first, then a Bayesian search (Optuna) around the best grid point, both scored by
+   5-fold cross-validation on the training data ([`reports/final_hyperparameters.json`](reports/final_hyperparameters.json)).
+6. **Evaluate.** Every model is run on three seeds, each drawing a fresh split, fresh folds and fresh model
+   randomness. A fingerprint check confirms that every model saw exactly the same data.
+7. **Save.** Each model is stored as the average of its three seed-trained pipelines; the chosen one becomes
+   `models/final_model.joblib`, alongside `models/input_schema.json`, which holds the allowed choices and value ranges
+   the app uses.
 
 ## Project structure
 
 ```
-├── data/README.md            how to get the dataset (data/ is git-ignored)
-├── notebooks/
-│   ├── data_exploration      the raw data, rent distribution, rent by city, what cleaning removes
-│   ├── <model> × 13          one per model: clean → train on 3 seeds → results → save → diagnostics
-│   ├── hyperparameter_tuning grid search → Bayesian search (optional re-run, 20–40 min)
-│   ├── model_comparison      all models side by side
-│   ├── final_selection       picks the best model; saves final_model.joblib + input_schema.json and its
-│   │                         test errors by city / rent band
-│   ├── feature_importance    what the final model relies on
-│   └── predict_demo          predicting new listings, including invalid input
-├── src/                      config · data_loading · data_cleaning · feature_engineering · preprocessing
-│                             · models · tuning · evaluation · plotting · prediction
-├── tests/                    test_pipeline.py (data, splits, leakage, validation, models, results)
-│                             test_app.py (the app, run headless)
-├── reports/                  results.csv · final_hyperparameters.json · final_model_errors.csv (by city and
-│                             rent band) · final_model_residuals.csv (histogram) — aggregates only
-├── visualizations/           figures (per-model diagnostics, comparison, importance, data exploration)
-├── models/                   saved models + input_schema.json (created by the notebooks, git-ignored)
-├── app/                      the Kiraya app: streamlit_app.py (entry, top navigation), views/ (estimate,
-│                             compare, about), common.py (form, estimates), ui.py (style, cards), assets/
-├── run_all.py                runs everything end to end
-└── requirements.txt · pyproject.toml · .streamlit/config.toml · LICENSE
+├── app/                 Streamlit app — streamlit_app.py (entry), views/ (one file per page),
+│                        common.py (form, estimates), ui.py (styles and components), assets/
+├── data/README.md       how to get the dataset (data/ is git-ignored)
+├── notebooks/           data_exploration · one notebook per model (13) · hyperparameter_tuning ·
+│                        model_comparison · final_selection · feature_importance · predict_demo
+├── src/                 config · data_loading · data_cleaning · feature_engineering · preprocessing ·
+│                        models · tuning · evaluation · plotting · prediction
+├── tests/               test_pipeline.py (data, splits, leakage, validation, models) · test_app.py (the app)
+├── reports/             results.csv · final_hyperparameters.json · final-model error summaries
+├── visualizations/      figures from the notebooks
+├── models/              saved models (built by run_all.py, git-ignored)
+└── run_all.py           runs every notebook in order, then the tests
 ```
 
-## How to run
+## Getting started
 
 ```bash
 git clone https://github.com/PihuCodeTech/House-Rent-Prediction-System.git
 cd House-Rent-Prediction-System
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt               # macOS: XGBoost/LightGBM also need `brew install libomp`
-# download the dataset into data/raw/House_Rent_Dataset.csv — see data/README.md
-
-python run_all.py                             # every notebook in order, then the tests (≈ 3–4 min)
-python run_all.py --only random_forest        # re-run selected notebooks
-python run_all.py --tuning                    # also re-run the hyperparameter search
-python -m pytest                              # just the tests
-streamlit run app/streamlit_app.py            # the app
+pip install -r requirements.txt          # macOS: XGBoost and LightGBM also need `brew install libomp`
 ```
 
-`run_all.py` works from any folder, checks packages and the dataset first, runs the notebooks with the active Python,
-saves each notebook with its outputs, and stops with the notebook name and error if anything fails.
+Download the dataset into `data/raw/House_Rent_Dataset.csv` (see [`data/README.md`](data/README.md)), then:
 
-Predicting from Python:
-
-```python
-from src.prediction import predict_listing
-
-predict_listing(
-    {
-        "City": "Mumbai",
-        "Area Locality": "Andheri West",
-        "BHK": 3,
-        "Size": 1400,
-        "Bathroom": 3,
-        "Furnishing Status": "Furnished",
-    }
-)
-# -> {'rent': …, 'low': …, 'high': …, 'per_seed': {42: …, 43: …, 44: …}, 'warnings': [...], 'model': 'Gradient Boosting', …}
+```bash
+python run_all.py                        # every notebook, then the tests (about 3–4 minutes)
+streamlit run app/streamlit_app.py       # the app, at http://localhost:8501
 ```
 
-## Dataset
+| Command | Does |
+|---|---|
+| `python run_all.py --only random_forest` | re-runs selected notebooks |
+| `python run_all.py --tuning` | also re-runs the hyperparameter search (20–40 minutes) |
+| `python -m pytest` | runs the tests only |
 
-**House Rent Prediction Dataset** by Sourav Banerjee, on Kaggle:
-<https://www.kaggle.com/datasets/iamsouravbanerjee/house-rent-prediction-dataset>. According to its description, it
-was collected from [MagicBricks](https://www.magicbricks.com/). The dataset is not redistributed here; download it
-from Kaggle (see [`data/README.md`](data/README.md)) and check its terms there.
+## Dataset and licence
 
-## Licence
+The **House Rent Prediction Dataset** by Sourav Banerjee is on
+[Kaggle](https://www.kaggle.com/datasets/iamsouravbanerjee/house-rent-prediction-dataset) and was collected from
+[MagicBricks](https://www.magicbricks.com/): roughly 4,700 listings posted between April and July 2022. It is not
+redistributed here.
 
-The code in this repository is released under the [MIT Licence](LICENSE). The licence does not cover the dataset.
+The code is released under the [MIT Licence](LICENSE), which does not cover the dataset.
