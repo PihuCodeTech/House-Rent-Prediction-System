@@ -20,14 +20,17 @@ pytestmark = pytest.mark.skipif(
 APP = str(ROOT / "app" / "streamlit_app.py")
 
 
-def run_app(page=None):
+def run_app(page="views/estimate.py"):
     import streamlit as st
 
     st.cache_resource.clear()
     at = st_testing.AppTest.from_file(APP, default_timeout=60)
     at.run()
     if page:
-        at.switch_page(page).run()
+        try:
+            at.switch_page(page).run()
+        except Exception:  # e.g. the setup screen stopped before navigation registered any page
+            pass
     return at
 
 
@@ -107,7 +110,8 @@ def test_affordability_calculator_uses_the_latest_estimate():
 
 
 def test_affordability_calculator_with_my_own_rent():
-    at = run_app("views/afford.py")
+    at = run_app()  # visit the estimate page first so a "latest estimate" exists to switch away from
+    at.switch_page("views/afford.py").run()
     at.segmented_control(key="af_source").set_value("My own figure").run()
     at.number_input(key="af_rent").set_value(60_000).run()
     at.number_input(key="af_income").set_value(100_000).run()
@@ -243,3 +247,23 @@ def test_likely_range_is_the_seed_spread():
     assert f"{common.ui.inr_short(result['seed_low'])} – {common.ui.inr_short(result['seed_high'])}" in html
     at.switch_page("views/afford.py").run()
     assert "Latest estimate: the rent the model estimated" in page_html(at)
+
+
+def test_overview_is_the_landing_page():
+    at = run_app("views/overview.py")
+    no_exceptions(at)
+    html = page_html(at)
+    assert "What should this flat" in html and "live estimate" in html and "/ month" in html
+    assert "Six cities, six different rent markets" in html
+
+
+def test_overview_estimator_updates_and_hands_off_to_the_full_estimate():
+    at = run_app("views/overview.py")
+    at.segmented_control(key="q_city").set_value("Kolkata").run()
+    at.slider(key="q_size").set_value(1200).run()
+    no_exceptions(at)
+    html = page_html(at)
+    assert "Kolkata" in html and "1,200 sq ft" in html and "Kolkata median" in html
+    at.button(key="q_open").click().run()
+    no_exceptions(at)
+    assert at.selectbox(key="a_city").value == "Kolkata" and at.number_input(key="a_size").value == 1200
