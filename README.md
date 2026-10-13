@@ -59,10 +59,11 @@ followed by whether an agent lists the home, the number of bathrooms and the loc
 
 ## The app
 
-A Streamlit app built on the final model, with four pages:
+A Streamlit app built on the final model, with five pages:
 
 | Page | What it does |
 |---|---|
+| **Overview** | A landing page that introduces the project, shows a live worked example, and links to the three tools. |
 | **Rent estimate** | Describe a home and get its monthly rent, a likely range (the spread of the three seed models), rent per sq ft against the locality and city medians, and what would change the estimate. |
 | **Compare two homes** | Two homes side by side and how far apart their rents are. |
 | **Affordability calculator** | The latest estimate, or any rent, against your take-home income: share of income, what's left, and the most rent within the common 30% guideline. |
