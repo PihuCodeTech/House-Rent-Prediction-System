@@ -62,6 +62,14 @@ if NUM is not None and "Test RMSE mean" in NUM:
     first = ranked.iloc[0]
     tied = list(ranked[ranked["Test RMSE mean"] <= first["Test RMSE mean"] + first["Test RMSE std"]].index)
 
+st.html(
+    ui.page_head(
+        "How the model was chosen",
+        "What was compared, how accurate the final model is on homes it never saw, and where it goes wrong.",
+        aside=[(f"{len(NUM)}" if NUM is not None else "13", "models compared"), (f"{n_test:,}" if n_test else "–", "test predictions")],
+    )
+)
+
 # ----------------------------- 1. the study -----------------------------
 with st.container(key="card_about"):
     st.html(ui.card_head("info", "About this study", "What was compared, how and why this model was chosen."))
@@ -180,7 +188,7 @@ with st.container(key="card_errors"):
                 (f"≤ {ui.inr(e)}" if o and s < 0 else f"≥ {ui.inr(s)}" if o else f"{ui.inr(s)} to {ui.inr(e)}")
                 for s, e, o in zip(hist["bin_start"], hist["bin_end"], hist["open_ended"], strict=True)
             ]
-            st.html('<p class="card-title" style="font-size:1rem;margin:.4rem 0 .2rem">Residuals</p>')
+            st.html('<p class="card-title" style="font-size:1.1rem;margin:.4rem 0 .2rem">Residuals</p>')
             bars = (
                 alt.Chart(hist)
                 .mark_bar(color=ui.T["rust"], opacity=0.85)
