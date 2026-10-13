@@ -7,7 +7,7 @@ import streamlit as st
 import ui
 
 LIMIT = 30  # % of take-home income: the common rule of thumb
-COLORS = {"Rent": ui.T["rust"], "Other housing costs": "#D9A48F", "Left over": ui.T["green"]}
+COLORS = {"Rent": ui.T["rust"], "Other housing costs": "#C3D0CB", "Left over": ui.T["green"]}
 
 last_result, last_errors = st.session_state.get("a_result", (None, None))
 estimate = last_result if last_result and not last_errors else None
@@ -18,6 +18,17 @@ def number(label, key, default, **kwargs):
     st.session_state.setdefault(key, default)
     return st.number_input(label, key=key, **kwargs)
 
+
+def set_income(value):
+    st.session_state["af_income"] = value
+
+
+st.html(
+    ui.page_head(
+        "Affordability calculator",
+        "Weigh a rent against your take-home income: the share it takes, what is left and the most rent within 30%.",
+    )
+)
 
 left, right = st.columns(2, gap="small")
 
@@ -87,6 +98,22 @@ with right:
                     "goes, and how much rent fits your budget."
                 )
             )
+            housing = float(rent) + float(other or 0)
+            st.html(
+                ui.tiles(
+                    [
+                        (f"Within {LIMIT}% from", ui.inr(housing / (LIMIT / 100), 1000), "take-home a month"),
+                        ("Heavy below", ui.inr(housing / ((LIMIT + 10) / 100), 1000), f"take-home: over {LIMIT + 10}% of it"),
+                    ],
+                    cls="need",
+                )
+            )
+            st.html('<p class="kicker" style="margin:.4rem 0 -.3rem">Or start from a typical take-home income</p>')
+            presets = st.columns(4, gap="small")
+            for col, value in zip(presets, (50_000, 100_000, 150_000, 250_000), strict=True):
+                col.button(
+                    ui.inr_short(value), key=f"afpreset_{value}", width="stretch", on_click=set_income, args=(value,)
+                )
         st.stop()
 
     b = common.budget(float(rent), float(income), float(other or 0), limit / 100)
@@ -131,15 +158,15 @@ with c1, st.container(key="card_af_split"):
             color=alt.Color(
                 "label:N",
                 scale=alt.Scale(domain=split["label"].tolist(), range=[COLORS[p] for p in split["part"]]),
-                legend=alt.Legend(title=None, orient="bottom", direction="vertical", labelFontSize=12, labelLimit=320),
+                legend=alt.Legend(title=None, orient="bottom", direction="vertical", labelFontSize=13, labelLimit=340),
             ),
             tooltip=[alt.Tooltip("part:N", title=""), alt.Tooltip("label:N", title="Amount")],
         )
         .transform_calculate(order=f"indexof({split['part'].tolist()}, datum.part)")
     )
     centre = alt.Chart(pd.DataFrame({"t": [f"{b['share']:.0%}"], "s": ["on housing"]}))
-    big = centre.mark_text(fontSize=24, fontWeight="bold", dy=-8, color=ui.T["ink"]).encode(text="t:N")
-    small = centre.mark_text(fontSize=12, dy=14, color=ui.T["ink2"]).encode(text="s:N")
+    big = centre.mark_text(fontSize=27, fontWeight="bold", dy=-9, color=ui.T["ink"]).encode(text="t:N")
+    small = centre.mark_text(fontSize=13, dy=15, color=ui.T["ink2"]).encode(text="s:N")
     st.altair_chart(
         (donut + big + small)
         .properties(height=330)
@@ -173,7 +200,7 @@ with c2, st.container(key="card_af_rents"):
         sort=None,
         title=None,
         scale=alt.Scale(paddingInner=0.45, paddingOuter=0.3),
-        axis=alt.Axis(labelAngle=0, labelFontSize=12),
+        axis=alt.Axis(labelAngle=0, labelFontSize=13),
     )
     enc_y = alt.Y("rent:Q", title="Monthly rent (₹)", scale=alt.Scale(domain=[0, top]), axis=alt.Axis(format="~s"))
     col = (
@@ -185,7 +212,7 @@ with c2, st.container(key="card_af_rents"):
             color=alt.Color(
                 "fits:N",
                 scale=alt.Scale(domain=[f"within {limit}%", f"above {limit}%"], range=[ui.T["green"], ui.T["rust"]]),
-                legend=alt.Legend(title=None, orient="bottom", labelFontSize=12),
+                legend=alt.Legend(title=None, orient="bottom", labelFontSize=13),
             ),
             tooltip=[
                 alt.Tooltip("name:N", title=""),
@@ -193,7 +220,7 @@ with c2, st.container(key="card_af_rents"):
             ],
         )
     )
-    labels = alt.Chart(bars).mark_text(dy=-9, fontSize=12, color=ui.T["ink"]).encode(x=enc_x, y=enc_y, text="text:N")
+    labels = alt.Chart(bars).mark_text(dy=-10, fontSize=13, color=ui.T["ink"]).encode(x=enc_x, y=enc_y, text="text:N")
     layers = col + labels
     if b["max_rent"] > 0:
         line = pd.DataFrame({"y": [b["max_rent"]]})
