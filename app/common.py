@@ -52,7 +52,7 @@ DEFAULT_HOME = {
 }
 
 
-INPUT_PREFIXES = ("a_", "ca_", "cb_", "af_")  # estimate form, compare forms, affordability calculator
+INPUT_PREFIXES = ("a_", "ca_", "cb_", "af_", "q_")  # estimate, compare, affordability, landing-page estimator
 
 
 def keep_inputs():
@@ -60,7 +60,8 @@ def keep_inputs():
     them when you switch pages and come back. Buttons can't be assigned and are skipped. Widgets take their
     defaults from session state (never a `value=` argument), so this never conflicts with them."""
     for key in list(st.session_state.keys()):
-        if isinstance(key, str) and key.startswith(INPUT_PREFIXES) and not key.endswith(("_go", "_reset", "_update")):
+        skip = ("_go", "_reset", "_update", "_open")
+        if isinstance(key, str) and key.startswith(INPUT_PREFIXES) and not key.endswith(skip):
             try:
                 st.session_state[key] = st.session_state[key]
             except Exception:  # noqa: BLE001 — anything that can't be re-assigned simply isn't kept
@@ -262,14 +263,14 @@ def what_if_chart(listing, rent):
             "label:N",
             sort=order,
             title=None,
-            axis=alt.Axis(labelLimit=170, labelFontSize=12, ticks=False, domain=False),
+            axis=alt.Axis(labelLimit=190, labelFontSize=13, ticks=False, domain=False),
         )
     )
     x = alt.X(
         "change:Q",
         title="Change in monthly rent (₹)",
         scale=alt.Scale(domain=[min(df["change"].min(), 0) - 0.5 * span, max(df["change"].max(), 0) + 0.5 * span]),
-        axis=alt.Axis(format="~s", labelFontSize=11),
+        axis=alt.Axis(format="~s", labelFontSize=12, titleFontSize=13),
     )
     bars = base.mark_bar(cornerRadius=4, height=16).encode(
         x=x,
@@ -277,7 +278,7 @@ def what_if_chart(listing, rent):
             "direction:N",
             scale=alt.Scale(domain=["▲ rent goes up", "▼ rent goes down"], range=[ui.T["rust"], ui.T["green"]]),
             legend=alt.Legend(
-                title=None, orient="top", direction="horizontal", columns=2, labelFontSize=12, labelLimit=140, offset=6
+                title=None, orient="top", direction="horizontal", columns=2, labelFontSize=13, labelLimit=160, offset=6
             ),
         ),
         tooltip=[
@@ -286,13 +287,13 @@ def what_if_chart(listing, rent):
             alt.Tooltip("pct:Q", title="Change %", format="+.0%"),
         ],
     )
-    up = base.transform_filter("datum.change >= 0").mark_text(align="left", dx=5, fontSize=11, color=ui.T["ink"])
-    down = base.transform_filter("datum.change < 0").mark_text(align="right", dx=-5, fontSize=11, color=ui.T["ink"])
+    up = base.transform_filter("datum.change >= 0").mark_text(align="left", dx=5, fontSize=12.5, color=ui.T["ink"])
+    down = base.transform_filter("datum.change < 0").mark_text(align="right", dx=-5, fontSize=12.5, color=ui.T["ink"])
     labels = up.encode(x=x, text="text:N") + down.encode(x=x, text="text:N")
     rule = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(color=ui.T["ink2"]).encode(x="x:Q")
     chart = (
         (bars + labels + rule)
-        .properties(height=34 * len(df) + 50)
+        .properties(height=36 * len(df) + 54)
         .configure_view(stroke=None)
         .configure_axis(gridColor=ui.T["line"], labelColor=ui.T["ink2"], titleColor=ui.T["ink2"])
         .configure(background="transparent", font=ui.SANS.replace("'", ""))
