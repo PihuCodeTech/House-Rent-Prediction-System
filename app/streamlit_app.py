@@ -44,7 +44,8 @@ except Exception as broken:  # e.g. files saved by a much older version of the c
 common.keep_inputs()
 
 pages = [
-    st.Page(str(APP / "views" / "estimate.py"), title="Rent estimate", icon=":material/home_work:", default=True),
+    st.Page(str(APP / "views" / "overview.py"), title="Overview", icon=":material/explore:", default=True),
+    st.Page(str(APP / "views" / "estimate.py"), title="Rent estimate", icon=":material/home_work:"),
     st.Page(str(APP / "views" / "compare.py"), title="Compare two homes", icon=":material/compare_arrows:"),
     st.Page(
         str(APP / "views" / "afford.py"),
