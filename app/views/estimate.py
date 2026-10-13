@@ -27,6 +27,13 @@ def request_estimate():
     st.session_state["a_run"] = True
 
 
+st.html(
+    ui.page_head(
+        "Rent estimate",
+        "Describe a home to get its monthly rent, a likely range and how it sits against the local market.",
+    )
+)
+
 left, right = st.columns([5, 7], gap="small")
 
 with left, st.container(key="card_form"):
