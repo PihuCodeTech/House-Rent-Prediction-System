@@ -22,7 +22,7 @@ def request_compare():
 st.html(
     ui.page_head(
         "Compare two homes",
-        "Describe two homes — same city or different ones — and see how far apart their rents are.",
+        "Describe two homes, in the same city or different ones, and see how far apart their rents are.",
     )
 )
 
@@ -30,7 +30,7 @@ col_a, col_b = st.columns(2, gap="small")
 listings = {}
 for col, prefix, name, defaults in ((col_a, "ca_", "Home A", common.DEFAULT_HOME), (col_b, "cb_", "Home B", HOME_B)):
     with col, st.container(key=f"card_{prefix}form"):
-        st.html(ui.card_head("building", name, "Different city, locality, size or furnishing — anything goes."))
+        st.html(ui.card_head("building", name, "Any city, locality, size or furnishing."))
         listings[name] = common.listing_form(prefix, defaults)
         st.button(f"Reset {name}", key=f"{prefix}reset", type="tertiary", on_click=common.reset_form, args=(prefix,))
 
@@ -45,7 +45,7 @@ saved = st.session_state["c_listings"]
 if saved != listings:
     st.html(
         ui.banner(
-            "You've changed a home — the results below are for the <b>previous</b> details. "
+            "You've changed a home, so the results below are for the <b>previous</b> details. "
             "Press <b>Compare rents</b> to update."
         )
     )
@@ -62,7 +62,7 @@ if a and b:
         cheaper, dearer = ("A", "B") if gap > 0 else ("B", "A")
         ratio = max(a["rent"], b["rent"]) / min(a["rent"], b["rent"])
         how = f"about {ratio:.1f} times as much" if ratio >= 1.95 else f"{ratio - 1:.0%} more"
-        headline = f"Home {dearer} is about {ui.inr(abs(gap), 100)} a month more than Home {cheaper} — {how}."
+        headline = f"Home {dearer} is about {ui.inr(abs(gap), 100)} a month more than Home {cheaper} ({how})."
     top = max(a["rent"], b["rent"]) * 1.04
     bars = "".join(
         f'<div class="vs-row{" hi" if r["rent"] >= max(a["rent"], b["rent"]) else ""}"><span>{name}</span>'
@@ -93,7 +93,7 @@ for col, name in ((col_a, "Home A"), (col_b, "Home B")):
                 ui.problems(
                     errors,
                     heading=f"{name} can't be estimated yet:",
-                    footer="Your entries are kept — correct them above and press <b>Compare rents</b> again.",
+                    footer="Your entries are kept. Correct them above and press <b>Compare rents</b> again.",
                 )
             )
         else:
