@@ -260,8 +260,8 @@ faqs = [
      "Mumbai, Delhi, Bangalore, Chennai, Hyderabad and Kolkata, for homes between 20 and 8,000 sq ft. Localities with "
      "very few listings fall back to a typical city effect, and the app tells you when that happens."),
     ("How accurate is an estimate?",
-     f"On homes it never saw while training, the typical estimate is off by about {mdape:.0f}% of the actual rent — "
-     f"roughly {ui.inr(mae, 100)} a month — and it explains about {r2:.0%} of the variation in rent. "
+     f"On homes it never saw while training, the typical estimate is off by about {mdape:.0f}% of the actual rent "
+     f"(roughly {ui.inr(mae, 100)} a month), and it explains about {r2:.0%} of the variation in rent. "
      "The likely range shows how firmly the data pins down each specific home."
      if mdape and mae and r2 else
      "On held-out homes the typical estimate is off by about a fifth of the actual rent. The likely range shows how "
@@ -274,7 +274,7 @@ faqs = [
      "About 4,700 listings posted on MagicBricks between April and July 2022, published as the House Rent Prediction "
      "Dataset on Kaggle. Rents have moved since, so treat the figures as a 2022 baseline rather than today's market."),
     ("Can it value my exact flat?",
-     "No. It prices a home from its listing details — it doesn't know the building's age, floor, amenities, condition "
+     "No. It prices a home from its listing details and doesn't know the building's age, floor, amenities, condition "
      "or exact address. It's an estimate to sense-check a rent, not a valuation."),
 ]
 st.html('<div class="sec"></div>')
