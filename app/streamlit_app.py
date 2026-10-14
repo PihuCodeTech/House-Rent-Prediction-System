@@ -1,4 +1,4 @@
-"""Kiraya — monthly rent estimates for homes in six Indian cities.
+"""Kiraya: monthly rent estimates for homes in six Indian cities.
 
     streamlit run app/streamlit_app.py        (from the project folder, after `python run_all.py`)
 
@@ -18,7 +18,7 @@ sys.path.insert(0, str(APP))  # app/ -> `import ui, common`
 import common  # noqa: E402
 import ui  # noqa: E402
 
-st.set_page_config(page_title="Kiraya — rent estimates", page_icon=str(APP / "assets" / "logo_icon.svg"), layout="wide")
+st.set_page_config(page_title="Kiraya: rent estimates", page_icon=str(APP / "assets" / "logo_icon.svg"), layout="wide")
 st.html(ui.CSS)
 st.logo(str(APP / "assets" / "logo.svg"), size="large")
 
