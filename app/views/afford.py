@@ -1,4 +1,4 @@
-"""Page: affordability calculator — what share of take-home income a rent would take."""
+"""Page: affordability calculator: what share of take-home income a rent would take."""
 
 import altair as alt
 import common
@@ -38,7 +38,7 @@ with left, st.container(key="card_af_form"):
         ui.card_head(
             "wallet",
             "Your monthly budget",
-            "Check any rent against your take-home income — or the one from your latest estimate.",
+            "Check your latest estimate, or any other rent, against your take-home income.",
         )
     )
     if estimate:
@@ -46,8 +46,8 @@ with left, st.container(key="card_af_form"):
             ui.field_label(
                 "Rent to check",
                 info="Latest estimate: the rent the model estimated for the home you last described on the Rent "
-                "estimate page (its likely range is shown in the charts too). My own figure: type any monthly rent "
-                "— a listing you are looking at, or what you pay now.",
+                "estimate page (its likely range is shown in the charts too). My own figure: type any monthly rent, "
+                "such as a listing you are looking at or what you pay now.",
             )
         )
         source = common._choice(
@@ -64,7 +64,7 @@ with left, st.container(key="card_af_form"):
         rent = float(estimate["rent"])
         st.html(
             ui.field_note(
-                f"<b>{ui.inr(rent, 100)}</b> a month — {ui.esc(ui.describe(estimate['listing']))}. "
+                f"<b>{ui.inr(rent, 100)}</b> a month for {ui.esc(ui.describe(estimate['listing']))}. "
                 f"Likely range {ui.inr_short(estimate['seed_low'])} – {ui.inr_short(estimate['seed_high'])}."
             )
         )
@@ -83,7 +83,7 @@ with left, st.container(key="card_af_form"):
         placeholder="e.g. 150000",
     )
     other = number("Other monthly housing costs (₹)", "af_other", 0, min_value=0, max_value=10_000_000, step=500)
-    st.html(ui.field_note("Maintenance, electricity, water, internet — anything paid monthly to live there."))
+    st.html(ui.field_note("Maintenance, electricity, water, internet: anything paid monthly to live there."))
 
 limit = LIMIT
 
@@ -136,7 +136,7 @@ with right:
             st.html(ui.notes([f"Your other housing costs alone use up the {limit}% budget."]))
         st.html(
             f'<p class="muted" style="margin-top:.6rem">Spending at most {limit}% of take-home income on housing is a '
-            "common rule of thumb, not a rule — it ignores savings, loan payments and household size.</p>"
+            "common rule of thumb. It ignores savings, loan payments and household size.</p>"
         )
 
 # ----------------------------- charts (full width) -----------------------------
