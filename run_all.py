@@ -1,6 +1,6 @@
 """Run the whole project end to end, from any folder:
 
-    python run_all.py                 # data exploration -> 12 model notebooks -> comparison -> final selection
+    python run_all.py                 # data exploration -> 13 model notebooks -> comparison -> final selection
                                       #   -> feature importance -> prediction demo -> tests
     python run_all.py --tuning        # also re-run the grid + Bayesian hyperparameter search first (20-40 min)
     python run_all.py --only random_forest xgboost_model   # just these notebooks (keeps other results)
@@ -175,7 +175,7 @@ def main():
     print(f"\n✓ all notebooks finished in {(time.time() - t0) / 60:.1f} min")
 
     if not args.no_tests:
-        print("\nRunning tests (tests/test_pipeline.py)")
+        print("\nRunning tests (tests/)")
         r = subprocess.run(
             [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-W", "ignore", str(ROOT / "tests")],
             cwd=ROOT,
