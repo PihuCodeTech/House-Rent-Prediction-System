@@ -612,7 +612,7 @@ def describe(listing):
 
 def status_pill(stale, when=None):
     if stale:
-        pill = f'<span class="status old">{icon("alert", 13, T["signal_dark"])}Outdated — details changed</span>'
+        pill = f'<span class="status old">{icon("alert", 13, T["signal_dark"])}Outdated: details changed</span>'
         sub = f"last estimated {esc(when)}" if when else ""
     else:
         pill = f'<span class="status ok">{icon("check", 13, T["brand_dark"])}Up to date</span>'
@@ -721,7 +721,7 @@ def leaderboard(rows, chosen, rule=None):
 
 
 def sr_table(caption, columns, rows):
-    """A table only screen readers see — the values behind a chart."""
+    """A table only screen readers see: the values behind a chart."""
     head = "".join(f"<th>{esc(c)}</th>" for c in columns)
     body = "".join("<tr>" + "".join(f"<td>{esc(v)}</td>" for v in r) + "</tr>" for r in rows)
     # the wrapper (not the table) is clipped: a table ignores height/overflow and would stretch the page
