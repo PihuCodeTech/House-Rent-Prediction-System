@@ -68,14 +68,14 @@ old = "_old" if stale else ""
 with right:
     if stale:
         u1, u2 = st.columns([3, 1], vertical_alignment="center")
-        u1.html(ui.banner("You've changed the details — the estimate below is for the <b>previous</b> home."))
+        u1.html(ui.banner("You've changed the details, so the estimate below is for the <b>previous</b> home."))
         u2.button("Update", key="a_update", type="primary", width="stretch", on_click=request_estimate)
     with st.container(key=f"card_result{old}"):
         if errors:
             st.html(
                 ui.problems(
                     errors,
-                    footer="Your entries are kept — correct them on the left and press <b>Estimate rent</b> again.",
+                    footer="Your entries are kept. Correct them on the left and press <b>Estimate rent</b> again.",
                 )
             )
         else:
@@ -107,9 +107,9 @@ if not errors:
                     )
                 )
                 st.html(
-                    '<p class="muted">Each bar re-runs the model with one thing changed. Small bars can point '
-                    "the unexpected way — the model learned from real, noisy listings — so read only the large "
-                    "ones as clear effects. These show what the model associates with higher rent, not what "
+                    '<p class="muted">Each bar re-runs the model with one thing changed. The model learned from real, '
+                    "noisy listings, so small bars can point the unexpected way. Read only the large ones as "
+                    "clear effects. These show what the model associates with higher rent, not what "
                     "causes it.</p>"
                 )
         except Exception as exc:  # a bonus view; never let it break the page
