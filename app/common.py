@@ -129,7 +129,7 @@ def listing_form(prefix, defaults, details_open=False):
         if locality and locality.lower() not in by_lower:
             st.html(
                 ui.field_note(
-                    f"Not among the {len(localities)} {ui.esc(city)} localities in the data — the estimate will use "
+                    f"Not among the {len(localities)} {ui.esc(city)} localities in the data, so the estimate will use "
                     "a typical locality effect for the city."
                 )
             )
@@ -168,8 +168,8 @@ def listing_form(prefix, defaults, details_open=False):
             ui.field_label(
                 "Size measured as",
                 info="Carpet: floor area inside the walls. Built-up: carpet plus walls and balconies. Super "
-                "built-up: built-up plus a share of lobbies, stairs and other common areas — the largest figure "
-                "for the same flat.",
+                "built-up: built-up plus a share of lobbies, stairs and other common areas. Of the three, it gives "
+                "the largest figure for the same flat.",
             )
         )
         st.session_state.setdefault(
@@ -217,9 +217,9 @@ def budget(rent, income, other=0.0, target=0.30):
     if share <= target:
         level, verdict = "ok", f"Within the common {target:.0%} guideline"
     elif share <= stretch:
-        level, verdict = "stretched", f"Stretched — between {target:.0%} and {stretch:.0%} of income"
+        level, verdict = "stretched", f"Stretched: between {target:.0%} and {stretch:.0%} of income"
     else:
-        level, verdict = "heavy", f"Heavy — more than {stretch:.0%} of income"
+        level, verdict = "heavy", f"Heavy: more than {stretch:.0%} of income"
     return {
         "rent": rent,
         "other": other,
