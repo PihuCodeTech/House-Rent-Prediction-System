@@ -24,3 +24,19 @@ reports/.run_reference.json
 
 # CatBoost training logs
 catboost_info/
+
+# Local tool state (kept on disk, not shared)
+.claude/settings.local.json
+.impeccable/
+
+# Logs and coverage
+*.log
+.coverage
+htmlcov/
+
+# AI coding-assistant tooling (Impeccable skill), kept locally
+.agent/
+.agents/
+.claude/
+.codex/
+.gemini/
