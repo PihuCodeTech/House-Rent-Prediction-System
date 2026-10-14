@@ -1,7 +1,7 @@
 [project]
 name = "house-rent-prediction"
 version = "1.0.0"
-description = "Predicting monthly house rent in six Indian cities: twelve regression models compared on three seeds."
+description = "Predicting monthly house rent in six Indian cities: thirteen models (ten learned, three baselines) compared on three seeds."
 requires-python = ">=3.10"
 
 [tool.ruff]
