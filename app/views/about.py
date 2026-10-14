@@ -1,5 +1,5 @@
-"""Page: the study behind the app — what was compared, how accurate the chosen model is, where it goes wrong, and
-its limits."""
+"""Page: the study behind the app: what was compared, how accurate the chosen model is, and where it
+goes wrong."""
 
 import altair as alt
 import common
@@ -75,7 +75,7 @@ with st.container(key="card_about"):
     st.html(ui.card_head("info", "About this study", "What was compared, how and why this model was chosen."))
     st.html(
         '<p class="lead" style="margin-top:.9rem">How well can a home\'s monthly rent be predicted from its listing '
-        "alone — city, locality, size, bedrooms, bathrooms, furnishing and who listed it?</p>"
+        "alone: city, locality, size, bedrooms, bathrooms, furnishing and who listed it?</p>"
     )
     per_seed = f"{n_test // len(seeds):,} per seed" if n_test else "15% of listings"
     st.html(
@@ -85,15 +85,15 @@ with st.container(key="card_about"):
                 ("Test homes", per_seed, f"{n_test:,} predictions over 3 seeds" if n_test else "held out each seed"),
                 ("Models", "13 compared", "3 baselines (incl. locality × size), 4 linear, 1 tree, 5 ensembles"),
                 ("Tuning", "Grid → Bayesian", "5-fold cross-validation on training rows only"),
-                ("Splits", "70 / 15 / 15", f"seeds {', '.join(map(str, seeds))} — every metric is mean ± std"),
+                ("Splits", "70 / 15 / 15", f"seeds {', '.join(map(str, seeds))} · every metric is mean ± std"),
             ]
         )
     )
     others = [m for m in tied if m != name]
     if others:
         why = (
-            f"On test RMSE it is tied with {ui.esc(' and '.join([', '.join(others[:-1]), others[-1]] if len(others) > 1 else others))} — the differences are smaller than the "
-            f"seed-to-seed spread — and among them it has the <b>lowest typical error</b> "
+            f"On test RMSE it is tied with {ui.esc(' and '.join([', '.join(others[:-1]), others[-1]] if len(others) > 1 else others))}, since the differences are smaller than the "
+            f"seed-to-seed spread. Among them it has the <b>lowest typical error</b> "
             f"({ui.inr(mae) if mae else '–'} MAE), <b>so it was chosen</b>."
         )
     else:
@@ -106,7 +106,7 @@ with st.container(key="card_about"):
             f"{rule_row['Test Median % Error mean']:.0f}% to {mdape:.0f}%."
         )
     st.html(
-        f'<p class="verdict"><b>{ui.esc(name)}</b> — {why}{beat} The estimates in this app are the average of its '
+        f'<p class="verdict"><b>{ui.esc(name)}</b>. {why}{beat} The estimates in this app are the average of its '
         "three seed-trained models.</p>"
     )
     st.html(
@@ -237,7 +237,7 @@ with st.container(key="card_errors"):
             else:
                 st.html(ui.empty(f"The actual-vs-predicted plot is missing. {SETUP_HINT}"))
 
-# ----------------------------- 4. range, inputs, limits -----------------------------
+# ----------------------------- 4. range, inputs -----------------------------
 c1, c2 = st.columns(2, gap="small")
 with c1, st.container(key="card_about_range"):
     st.html(ui.card_title("chart", "How the likely range works"))
@@ -252,19 +252,8 @@ with c2, st.container(key="card_about_knows"):
     st.html(ui.card_title("tag", "What the model knows"))
     st.html(
         '<p class="muted">City, locality, size, bedrooms, bathrooms, furnishing, who listed the home, the preferred '
-        "tenants and how the size was measured. Floor and building height were tried and dropped — they changed "
+        "tenants and how the size was measured. Floor and building height were tried and dropped because they changed "
         "the error by only about ₹600. It does not know the building's age, "
-        "amenities, exact location or condition — and the what-if bars on the estimate page show what the model "
+        "amenities, exact location or condition. The what-if bars on the estimate page show what the model "
         "associates with higher rent, not what causes it.</p>"
-    )
-
-with st.container(key="card_about_limits"):
-    st.html(ui.card_title("pin", "Limits and data"))
-    st.html(
-        '<p class="muted">About 4,700 listings from one website (MagicBricks), posted April–July 2022, in Mumbai, Delhi, '
-        "Bangalore, Chennai, Hyderabad and Kolkata — rents have moved since. Homes outside 20–8,000 sq ft, unusual "
-        "layouts and localities with few listings get less reliable estimates, and the app says so when that "
-        "happens. Model versions were chosen by test RMSE, which makes the reported test errors slightly "
-        "optimistic. This is an estimate, not a valuation.<br><br>Data: House Rent Prediction Dataset by Sourav "
-        "Banerjee (Kaggle), collected from MagicBricks.</p>"
     )
